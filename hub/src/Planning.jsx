@@ -13,6 +13,11 @@ const RECURRENCES = [
   { id: 'mensuelle', label: 'Chaque mois' },
   { id: 'hebdomadaire', label: 'Chaque semaine' },
 ]
+const STATUTS = [
+  { id: 'ouverture', label: 'Ouverture', couleur: '#22c55e' },
+  { id: 'fermeture', label: 'Fermeture', couleur: '#ef4444' },
+  { id: 'intermediaire', label: 'Intermédiaire', couleur: '#f97316' },
+]
 const ORDRE_CATEGORIE = { horaire: 0, rayon: 1, activite: 2, evenement: 3 }
 const PALETTE = [
   '#ef4444', '#f97316', '#f59e0b', '#eab308',
@@ -44,6 +49,10 @@ function evenementSurDate(ev, dateObj) {
   if (ev.recurrence === 'hebdomadaire') return ref.getDay() === dateObj.getDay()
   return false
 }
+function couleurStatut(statut) {
+  const s = STATUTS.find(x => x.id === statut)
+  return s ? s.couleur : '#9ca3af'
+}
 
 export function Planning({ onRetour }) {
   const today = new Date()
@@ -52,9 +61,8 @@ export function Planning({ onRetour }) {
   const [vue, setVue] = useState('mois')
   const [ancrageSemaine, setAncrageSemaine] = useState(new Date())
 
-  // Détection mobile
   const [estMobile, setEstMobile] = useState(window.innerWidth < 768)
-  const [ongletMobile, setOngletMobile] = useState('vue') // 'vue' | 'peindre' | 'gerer'
+  const [ongletMobile, setOngletMobile] = useState('vue')
   useEffect(() => {
     function onResize() { setEstMobile(window.innerWidth < 768) }
     window.addEventListener('resize', onResize)
@@ -77,10 +85,15 @@ export function Planning({ onRetour }) {
   const [loading, setLoading] = useState(true)
   const [sauvegarde, setSauvegarde] = useState('idle')
 
+  const [detailJour, setDetailJour] = useState(null) // popup d'infos
+
   const [formPresetOuvert, setFormPresetOuvert] = useState(false)
   const [nouveauNom, setNouveauNom] = useState('')
   const [nouvelleCategorie, setNouvelleCategorie] = useState('horaire')
   const [nouvelleCouleur, setNouvelleCouleur] = useState(PALETTE[0])
+  const [nouveauStatut, setNouveauStatut] = useState('ouverture')
+  const [nouveauFichier, setNouveauFichier] = useState(null)
+  const [uploadEnCours, setUploadEnCours] = useState(false)
 
   const [formCalOuvert, setFormCalOuvert] = useState(false)
   const [nouveauCalNom, setNouveauCalNom] = useState('')
@@ -100,7 +113,6 @@ export function Planning({ onRetour }) {
 
   function flashSauvegarde() { setSauvegarde('saved'); setTimeout(() => setSauvegarde('idle'), 1200) }
 
-  // --- Chargements ---
   async function chargerCalendriers() {
     const { data } = await supabase.from('calendriers').select('*').order('ordre')
     if (data) {
@@ -139,7 +151,6 @@ export function Planning({ onRetour }) {
   useEffect(() => { chargerCalendriers(); chargerPersonnes(); chargerPresets(); chargerEvenements() }, [])
   useEffect(() => { chargerJours() }, [annee])
 
-  // --- Calendriers ---
   async function creerCalendrier() {
     if (!nouveauCalNom.trim()) return
     const ordreMax = calendriers.reduce((m, c) => Math.max(m, c.ordre), 0)
@@ -151,7 +162,7 @@ export function Planning({ onRetour }) {
     flashSauvegarde()
   }
   async function supprimerCalendrier(id) {
-    if (!confirm('Supprimer ce calendrier ? Tous ses presets, jours et événements seront supprimés.')) return
+    if (!confirm('Supprimer ce calendrier ? Tout son contenu sera supprimé.')) return
     setSauvegarde('saving')
     await supabase.from('calendriers').delete().eq('id', id)
     setCalendriersVisibles(v => v.filter(x => x !== id))
@@ -162,7 +173,6 @@ export function Planning({ onRetour }) {
   function toggleVisible(id) { setCalendriersVisibles(v => v.includes(id) ? v.filter(x => x !== id) : [...v, id]) }
   function changerCalendrierActif(id) { setCalendrierActif(id); setPresetActif(null) }
 
-  // --- Personnes ---
   async function creerPersonne() {
     if (!nouvellePersonneNom.trim()) return
     const ordreMax = personnes.reduce((m, p) => Math.max(m, p.ordre), 0)
@@ -184,12 +194,33 @@ export function Planning({ onRetour }) {
   }
   function togglePersonneVisible(id) { setPersonnesVisibles(v => v.includes(id) ? v.filter(x => x !== id) : [...v, id]) }
 
-  // --- Presets ---
+  // Upload d'image vers Supabase Storage
+  async function uploaderImage(fichier) {
+    const ext = fichier.name.split('.').pop()
+    const nom = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
+    const { error } = await supabase.storage.from('logos').upload(nom, fichier)
+    if (error) { alert('Erreur upload : ' + error.message); return null }
+    const { data } = supabase.storage.from('logos').getPublicUrl(nom)
+    return data.publicUrl
+  }
+
   async function creerPreset() {
     if (!nouveauNom.trim() || !calendrierActif) return
-    setSauvegarde('saving')
-    await supabase.from('presets').insert({ nom: nouveauNom.trim(), couleur: nouvelleCouleur, type: nouvelleCategorie, calendrier_id: calendrierActif })
-    setNouveauNom(''); setFormPresetOuvert(false)
+    setSauvegarde('saving'); setUploadEnCours(true)
+    let imageUrl = null
+    let couleur = nouvelleCouleur
+    let statut = null
+    if (nouvelleCategorie === 'horaire') {
+      statut = nouveauStatut
+      couleur = couleurStatut(nouveauStatut)
+    } else if (nouveauFichier) {
+      imageUrl = await uploaderImage(nouveauFichier)
+    }
+    await supabase.from('presets').insert({
+      nom: nouveauNom.trim(), couleur, type: nouvelleCategorie, calendrier_id: calendrierActif,
+      statut_horaire: statut, image_url: imageUrl,
+    })
+    setNouveauNom(''); setNouveauFichier(null); setFormPresetOuvert(false); setUploadEnCours(false)
     await chargerPresets()
     flashSauvegarde()
   }
@@ -202,7 +233,6 @@ export function Planning({ onRetour }) {
     flashSauvegarde()
   }
 
-  // --- Événements ---
   async function creerEvenement() {
     if (!evNom.trim() || !evDate || !calendrierActif) return
     setSauvegarde('saving')
@@ -219,25 +249,41 @@ export function Planning({ onRetour }) {
     flashSauvegarde()
   }
 
-  // --- Édition ---
   function ouvrirEdition(type, obj) {
-    if (type === 'preset') setEdition({ type, id: obj.id, nom: obj.nom, couleur: obj.couleur, categorie: obj.type })
+    if (type === 'preset') setEdition({ type, id: obj.id, nom: obj.nom, couleur: obj.couleur, categorie: obj.type, statut: obj.statut_horaire || 'ouverture', image_url: obj.image_url, fichier: null })
     else if (type === 'evenement') setEdition({ type, id: obj.id, nom: obj.nom, couleur: obj.couleur, date: obj.date_ref, recurrence: obj.recurrence })
     else setEdition({ type, id: obj.id, nom: obj.nom, couleur: obj.couleur })
   }
   async function enregistrerEdition() {
     if (!edition) return
     setSauvegarde('saving')
-    if (edition.type === 'preset') { await supabase.from('presets').update({ nom: edition.nom, couleur: edition.couleur, type: edition.categorie }).eq('id', edition.id); await chargerPresets() }
-    else if (edition.type === 'calendrier') { await supabase.from('calendriers').update({ nom: edition.nom, couleur: edition.couleur }).eq('id', edition.id); await chargerCalendriers() }
+    if (edition.type === 'preset') {
+      let maj = { nom: edition.nom, type: edition.categorie }
+      if (edition.categorie === 'horaire') {
+        maj.statut_horaire = edition.statut
+        maj.couleur = couleurStatut(edition.statut)
+        maj.image_url = null
+      } else {
+        maj.couleur = edition.couleur
+        maj.statut_horaire = null
+        if (edition.fichier) maj.image_url = await uploaderImage(edition.fichier)
+        else maj.image_url = edition.image_url
+      }
+      await supabase.from('presets').update(maj).eq('id', edition.id)
+      await chargerPresets()
+    } else if (edition.type === 'calendrier') { await supabase.from('calendriers').update({ nom: edition.nom, couleur: edition.couleur }).eq('id', edition.id); await chargerCalendriers() }
     else if (edition.type === 'personne') { await supabase.from('personnes').update({ nom: edition.nom, couleur: edition.couleur }).eq('id', edition.id); await chargerPersonnes() }
     else if (edition.type === 'evenement') { await supabase.from('evenements').update({ nom: edition.nom, couleur: edition.couleur, date_ref: edition.date, recurrence: edition.recurrence }).eq('id', edition.id); await chargerEvenements() }
     setEdition(null)
     flashSauvegarde()
   }
 
-  // --- Peinture / gomme ---
-  async function clicJour(cle, personneId = personneActive) {
+  async function clicJour(cle, personneId = personneActive, dateObj = null) {
+    // Mode consultation -> popup
+    if (!presetActif && !modeGomme) {
+      if (dateObj) setDetailJour({ cle, dateObj, personneId })
+      return
+    }
     if (!calendrierActif || !personneId) return
     if (modeGomme) {
       const aSupprimer = application.filter(a => a.jour === cle && a.calendrier_id === calendrierActif && a.personne_id === personneId)
@@ -246,7 +292,6 @@ export function Planning({ onRetour }) {
       await supabase.from('planning_jours').delete().in('id', aSupprimer.map(a => a.id))
       await chargerJours(); flashSauvegarde(); return
     }
-    if (!presetActif) return
     const preset = presets.find(p => p.id === presetActif)
     if (!preset || preset.calendrier_id !== calendrierActif) { setPresetActif(null); return }
     setSauvegarde('saving')
@@ -258,24 +303,17 @@ export function Planning({ onRetour }) {
 
   const presetsCalendrierActif = presets.filter(p => p.calendrier_id === calendrierActif)
 
-  function infosDuJour(anneeJ, moisJ, jourJ) {
+  // Renvoie { statut, couleurStatut, icones:[{url,nom}], presetsDetail:[], evenements:[] } pour un jour/personne
+  function resumeJour(anneeJ, moisJ, jourJ, personneId) {
     const cle = cleJour(anneeJ, moisJ, jourJ)
     const dateObj = new Date(anneeJ, moisJ, jourJ)
-    const parCalendrier = {}
-    application.filter(a => a.jour === cle && a.personne_id === personneActive && calendriersVisibles.includes(a.calendrier_id)).forEach(a => {
-      const preset = presets.find(p => p.id === a.preset_id)
-      if (!preset) return
-      if (!parCalendrier[a.calendrier_id]) parCalendrier[a.calendrier_id] = []
-      parCalendrier[a.calendrier_id].push({ nom: preset.nom, couleur: preset.couleur, type: preset.type })
-    })
-    evenements.filter(ev => calendriersVisibles.includes(ev.calendrier_id) && evenementSurDate(ev, dateObj)).forEach(ev => {
-      if (!parCalendrier[ev.calendrier_id]) parCalendrier[ev.calendrier_id] = []
-      parCalendrier[ev.calendrier_id].push({ nom: '🎉 ' + ev.nom, couleur: ev.couleur, type: 'evenement' })
-    })
-    Object.keys(parCalendrier).forEach(cid => {
-      parCalendrier[cid].sort((a, b) => (ORDRE_CATEGORIE[a.type] ?? 9) - (ORDRE_CATEGORIE[b.type] ?? 9))
-    })
-    return parCalendrier
+    const lignes = application.filter(a => a.jour === cle && a.personne_id === personneId && calendriersVisibles.includes(a.calendrier_id))
+    const presetsDetail = lignes.map(a => presets.find(p => p.id === a.preset_id)).filter(Boolean)
+      .sort((x, y) => (ORDRE_CATEGORIE[x.type] ?? 9) - (ORDRE_CATEGORIE[y.type] ?? 9))
+    const horaire = presetsDetail.find(p => p.type === 'horaire')
+    const icones = presetsDetail.filter(p => (p.type === 'rayon' || p.type === 'activite'))
+    const evs = evenements.filter(ev => calendriersVisibles.includes(ev.calendrier_id) && evenementSurDate(ev, dateObj))
+    return { presetsDetail, horaire, icones, evenements: evs, cle, dateObj }
   }
 
   function moisPrecedent() { if (mois === 0) { setMois(11); setAnnee(annee - 1) } else setMois(mois - 1) }
@@ -286,24 +324,52 @@ export function Planning({ onRetour }) {
   const calActifObj = calendriers.find(c => c.id === calendrierActif)
   const personneActiveObj = personnes.find(p => p.id === personneActive)
 
-  function Cellule({ a, m, j, haut = 95, fontJour = 12 }) {
-    const infos = infosDuJour(a, m, j)
-    const cals = Object.keys(infos)
+  // Case compacte (mois + équipe) : pastille statut + icônes
+  function CaseCompacte({ a, m, j, personneId, haut = 64, montrerNumero = true }) {
+    const r = resumeJour(a, m, j, personneId)
+    const estAujourdhui = (a === today.getFullYear() && m === today.getMonth() && j === today.getDate())
+    const aDesEvenements = r.evenements.length > 0
+    return (
+      <div onClick={() => clicJour(r.cle, personneId, new Date(a, m, j))}
+        style={{ minHeight: haut, border: estAujourdhui ? '2px solid #3b82f6' : '1px solid #e5e7eb', borderRadius: 8,
+          padding: 3, cursor: 'pointer', background: '#fff', position: 'relative', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          {r.horaire
+            ? <span title={r.horaire.nom} style={pastille(couleurStatut(r.horaire.statut_horaire), 12)} />
+            : <span style={{ width: 12 }} />}
+          {montrerNumero && <span style={{ fontSize: 11, color: '#9ca3af' }}>{j}</span>}
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2, marginTop: 3, justifyContent: 'center' }}>
+          {r.icones.map((p, i) => p.image_url
+            ? <img key={i} src={p.image_url} alt={p.nom} title={p.nom} style={{ width: 18, height: 18, objectFit: 'contain' }} />
+            : <span key={i} title={p.nom} style={{ ...pastille(p.couleur, 14) }} />
+          )}
+        </div>
+        {aDesEvenements && <div style={{ position: 'absolute', bottom: 2, right: 3, fontSize: 10 }}>🎉</div>}
+      </div>
+    )
+  }
+
+  // Case détaillée (semaine) : texte complet
+  function CaseDetaillee({ a, m, j, haut = 160 }) {
+    const r = resumeJour(a, m, j, personneActive)
     const estAujourdhui = (a === today.getFullYear() && m === today.getMonth() && j === today.getDate())
     return (
-      <div onClick={() => clicJour(cleJour(a, m, j))}
+      <div onClick={() => clicJour(r.cle, personneActive, new Date(a, m, j))}
         style={{ minHeight: haut, border: estAujourdhui ? '2px solid #3b82f6' : '1px solid #e5e7eb', borderRadius: 8, padding: 4,
-          cursor: (presetActif || modeGomme) ? 'pointer' : 'default', background: '#fff' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ display: 'flex', gap: 3 }}>
-            {cals.map(cid => { const cal = calendriers.find(c => c.id === cid); return cal ? <span key={cid} title={cal.nom} style={pastille(cal.couleur, 9)} /> : null })}
-          </div>
-          <div style={{ fontSize: fontJour, color: '#9ca3af' }}>{j}</div>
-        </div>
+          cursor: 'pointer', background: '#fff' }}>
+        <div style={{ textAlign: 'right', fontSize: 12, color: '#9ca3af' }}>{j}</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 2 }}>
-          {cals.flatMap(cid => infos[cid].map((it, i) => (
-            <div key={cid + '-' + i} style={{ background: it.couleur, borderRadius: 4, padding: '2px 4px', fontSize: 11, color: '#1f2937', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{it.nom}</div>
-          )))}
+          {r.presetsDetail.map((p, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4, background: p.type === 'horaire' ? couleurStatut(p.statut_horaire) : p.couleur,
+              borderRadius: 4, padding: '2px 4px', fontSize: 11, color: '#1f2937' }}>
+              {p.image_url && <img src={p.image_url} alt="" style={{ width: 14, height: 14, objectFit: 'contain' }} />}
+              <span style={{ overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{p.nom}</span>
+            </div>
+          ))}
+          {r.evenements.map((ev, i) => (
+            <div key={'e' + i} style={{ background: ev.couleur, borderRadius: 4, padding: '2px 4px', fontSize: 11 }}>🎉 {ev.nom}</div>
+          ))}
         </div>
       </div>
     )
@@ -318,11 +384,11 @@ export function Planning({ onRetour }) {
     for (let j = 1; j <= nb; j++) cells.push(j)
     return (
       <>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: estMobile ? 2 : 4, marginBottom: 4 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: estMobile ? 3 : 4, marginBottom: 4 }}>
           {JOURS.map(j => <div key={j} style={{ textAlign: 'center', fontWeight: 'bold', color: '#6b7280', fontSize: estMobile ? 11 : 14 }}>{estMobile ? j[0] : j}</div>)}
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: estMobile ? 2 : 4 }}>
-          {cells.map((j, idx) => j === null ? <div key={idx} /> : <Cellule key={idx} a={annee} m={mois} j={j} haut={estMobile ? 64 : 95} fontJour={estMobile ? 11 : 12} />)}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: estMobile ? 3 : 4 }}>
+          {cells.map((j, idx) => j === null ? <div key={idx} /> : <CaseCompacte key={idx} a={annee} m={mois} j={j} personneId={personneActive} haut={estMobile ? 60 : 80} />)}
         </div>
       </>
     )
@@ -334,7 +400,6 @@ export function Planning({ onRetour }) {
     const lundi = new Date(d); lundi.setDate(d.getDate() - dec)
     const jours = []
     for (let i = 0; i < 7; i++) { const x = new Date(lundi); x.setDate(lundi.getDate() + i); jours.push(x) }
-    // Sur mobile : liste verticale (pas de scroll horizontal)
     if (estMobile) {
       return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -344,7 +409,7 @@ export function Planning({ onRetour }) {
                 <div style={{ fontSize: 12 }}>{JOURS[idx]}</div>
                 <div style={{ fontSize: 18 }}>{x.getDate()}</div>
               </div>
-              <div style={{ flex: 1 }}><Cellule a={x.getFullYear()} m={x.getMonth()} j={x.getDate()} haut={70} /></div>
+              <div style={{ flex: 1 }}><CaseDetaillee a={x.getFullYear()} m={x.getMonth()} j={x.getDate()} haut={70} /></div>
             </div>
           ))}
         </div>
@@ -352,11 +417,11 @@ export function Planning({ onRetour }) {
     }
     return (
       <>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 4 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 4, marginBottom: 4 }}>
           {JOURS.map(j => <div key={j} style={{ textAlign: 'center', fontWeight: 'bold', color: '#6b7280' }}>{j}</div>)}
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
-          {jours.map((x, idx) => <Cellule key={idx} a={x.getFullYear()} m={x.getMonth()} j={x.getDate()} haut={160} />)}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 4 }}>
+          {jours.map((x, idx) => <CaseDetaillee key={idx} a={x.getFullYear()} m={x.getMonth()} j={x.getDate()} haut={160} />)}
         </div>
       </>
     )
@@ -375,18 +440,22 @@ export function Planning({ onRetour }) {
           return (
             <div key={mIdx} style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: 8, background: '#fff' }}>
               <div style={{ fontWeight: 'bold', textAlign: 'center', marginBottom: 6 }}>{nomMois}</div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 2 }}>
                 {['L','M','M','J','V','S','D'].map((d, i) => <div key={i} style={{ fontSize: 10, textAlign: 'center', color: '#9ca3af' }}>{d}</div>)}
                 {cells.map((j, idx) => {
                   if (j === null) return <div key={idx} />
-                  const infos = infosDuJour(annee, mIdx, j)
-                  const cals = Object.keys(infos)
+                  const r = resumeJour(annee, mIdx, j, personneActive)
+                  const aInfos = r.presetsDetail.length > 0 || r.evenements.length > 0
                   return (
-                    <div key={idx} style={{ fontSize: 10, textAlign: 'center', padding: 2, borderRadius: 3, background: cals.length ? '#eef2ff' : 'transparent' }}>
-                      {j}
-                      {cals.length > 0 && (
+                    <div key={idx} onClick={() => clicJour(r.cle, personneActive, new Date(annee, mIdx, j))}
+                      style={{ fontSize: 10, textAlign: 'center', padding: 2, borderRadius: 3, cursor: 'pointer',
+                        background: r.horaire ? couleurStatut(r.horaire.statut_horaire) + '33' : (aInfos ? '#eef2ff' : 'transparent') }}>
+                      <span style={{ color: r.horaire ? '#1f2937' : '#6b7280', fontWeight: r.horaire ? 'bold' : 'normal' }}>{j}</span>
+                      {r.icones.length > 0 && (
                         <div style={{ display: 'flex', justifyContent: 'center', gap: 1 }}>
-                          {cals.slice(0, 3).map(cid => { const cal = calendriers.find(c => c.id === cid); return cal ? <span key={cid} style={pastille(cal.couleur, 4)} /> : null })}
+                          {r.icones.slice(0, 3).map((p, i) => p.image_url
+                            ? <img key={i} src={p.image_url} alt="" style={{ width: 8, height: 8, objectFit: 'contain' }} />
+                            : <span key={i} style={pastille(p.couleur, 5)} />)}
                         </div>
                       )}
                     </div>
@@ -407,31 +476,15 @@ export function Planning({ onRetour }) {
     const joursSemaine = []
     for (let i = 0; i < 7; i++) { const x = new Date(lundi); x.setDate(lundi.getDate() + i); joursSemaine.push(x) }
     const personnesAffichees = personnes.filter(p => personnesVisibles.includes(p.id))
-    if (personnesAffichees.length === 0) return <p>Coche au moins une personne dans l'onglet Gérer pour la voir ici.</p>
-
-    // Sur mobile : par personne, une ligne de 7 mini-cases (pas de tableau qui déborde)
+    if (personnesAffichees.length === 0) return <p>Coche au moins une personne dans l'onglet Gérer.</p>
     if (estMobile) {
       return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {personnesAffichees.map(p => (
             <div key={p.id}>
-              <div style={{ fontWeight: 'bold', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={pastille(p.couleur, 10)} /> {p.nom}
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2 }}>
-                {joursSemaine.map((x, i) => {
-                  const cle = cleJour(x.getFullYear(), x.getMonth(), x.getDate())
-                  const items = application.filter(a => a.jour === cle && a.personne_id === p.id && calendriersVisibles.includes(a.calendrier_id))
-                    .map(a => presets.find(pr => pr.id === a.preset_id)).filter(Boolean)
-                    .sort((a, b) => (ORDRE_CATEGORIE[a.type] ?? 9) - (ORDRE_CATEGORIE[b.type] ?? 9))
-                  return (
-                    <div key={i} onClick={() => clicJour(cle, p.id)}
-                      style={{ minHeight: 56, border: '1px solid #e5e7eb', borderRadius: 6, padding: 2, cursor: (presetActif || modeGomme) ? 'pointer' : 'default', background: '#fff' }}>
-                      <div style={{ fontSize: 9, color: '#9ca3af', textAlign: 'center' }}>{JOURS[i][0]}{x.getDate()}</div>
-                      {items.map((it, idx) => <div key={idx} style={{ background: it.couleur, borderRadius: 3, fontSize: 8, padding: '1px 2px', marginTop: 1, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{it.nom}</div>)}
-                    </div>
-                  )
-                })}
+              <div style={{ fontWeight: 'bold', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}><span style={pastille(p.couleur, 10)} /> {p.nom}</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 2 }}>
+                {joursSemaine.map((x, i) => <CaseCompacte key={i} a={x.getFullYear()} m={x.getMonth()} j={x.getDate()} personneId={p.id} haut={56} montrerNumero={true} />)}
               </div>
             </div>
           ))}
@@ -439,51 +492,37 @@ export function Planning({ onRetour }) {
       )
     }
     return (
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 700 }}>
-          <thead>
-            <tr>
-              <th style={{ textAlign: 'left', padding: 8, borderBottom: '2px solid #d1d5db' }}>Personne</th>
-              {joursSemaine.map((x, i) => <th key={i} style={{ padding: 8, borderBottom: '2px solid #d1d5db', fontSize: 13 }}>{JOURS[i]} {x.getDate()}/{x.getMonth() + 1}</th>)}
+      <table style={{ borderCollapse: 'collapse', width: '100%', tableLayout: 'fixed' }}>
+        <thead>
+          <tr>
+            <th style={{ textAlign: 'left', padding: 8, borderBottom: '2px solid #d1d5db', width: 110 }}>Personne</th>
+            {joursSemaine.map((x, i) => <th key={i} style={{ padding: 6, borderBottom: '2px solid #d1d5db', fontSize: 12 }}>{JOURS[i]} {x.getDate()}/{x.getMonth() + 1}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {personnesAffichees.map(p => (
+            <tr key={p.id}>
+              <td style={{ padding: 8, fontWeight: 'bold', whiteSpace: 'nowrap' }}><span style={pastille(p.couleur, 10)} /> {p.nom}</td>
+              {joursSemaine.map((x, i) => (
+                <td key={i} style={{ padding: 3, verticalAlign: 'top' }}>
+                  <CaseCompacte a={x.getFullYear()} m={x.getMonth()} j={x.getDate()} personneId={p.id} haut={70} montrerNumero={false} />
+                </td>
+              ))}
             </tr>
-          </thead>
-          <tbody>
-            {personnesAffichees.map(p => (
-              <tr key={p.id} style={{ borderBottom: '1px solid #eee' }}>
-                <td style={{ padding: 8, fontWeight: 'bold', whiteSpace: 'nowrap' }}><span style={pastille(p.couleur, 10)} /> {p.nom}</td>
-                {joursSemaine.map((x, i) => {
-                  const cle = cleJour(x.getFullYear(), x.getMonth(), x.getDate())
-                  const items = application.filter(a => a.jour === cle && a.personne_id === p.id && calendriersVisibles.includes(a.calendrier_id))
-                    .map(a => presets.find(pr => pr.id === a.preset_id)).filter(Boolean)
-                    .sort((a, b) => (ORDRE_CATEGORIE[a.type] ?? 9) - (ORDRE_CATEGORIE[b.type] ?? 9))
-                  return (
-                    <td key={i} onClick={() => clicJour(cle, p.id)} style={{ padding: 4, verticalAlign: 'top', minWidth: 100, cursor: (presetActif || modeGomme) ? 'pointer' : 'default' }}>
-                      {items.map((it, idx) => <div key={idx} style={{ background: it.couleur, borderRadius: 4, padding: '2px 4px', fontSize: 11, marginBottom: 2 }}>{it.nom}</div>)}
-                    </td>
-                  )
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+          ))}
+        </tbody>
+      </table>
     )
   }
 
-  // === BLOCS D'INTERFACE (réutilisés sur PC et mobile) ===
-
+  // === BLOCS INTERFACE ===
   const blocCalendriers = (
     <div style={panel}>
-      <div style={headerRow}>
-        <strong>Mes calendriers</strong>
-        <button onClick={() => setFormCalOuvert(!formCalOuvert)} style={{ padding: '4px 10px' }}>{formCalOuvert ? '✕' : '＋ Calendrier'}</button>
-      </div>
+      <div style={headerRow}><strong>Mes calendriers</strong><button onClick={() => setFormCalOuvert(!formCalOuvert)} style={{ padding: '4px 10px' }}>{formCalOuvert ? '✕' : '＋ Calendrier'}</button></div>
       {formCalOuvert && (
         <div style={{ marginBottom: 12, padding: 12, background: '#fff', borderRadius: 8, border: '1px solid #eee' }}>
           <input value={nouveauCalNom} onChange={e => setNouveauCalNom(e.target.value)} placeholder="Nom (ex : Perso)" style={{ padding: 8, width: '100%', maxWidth: 260, marginBottom: 8, boxSizing: 'border-box' }} />
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 8 }}>
-            {PALETTE.map(c => <div key={c} onClick={() => setNouveauCalCouleur(c)} style={{ width: 26, height: 26, borderRadius: 5, background: c, cursor: 'pointer', border: nouveauCalCouleur === c ? '3px solid #000' : '1px solid #ccc' }} />)}
-          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 8 }}>{PALETTE.map(c => <div key={c} onClick={() => setNouveauCalCouleur(c)} style={{ width: 26, height: 26, borderRadius: 5, background: c, cursor: 'pointer', border: nouveauCalCouleur === c ? '3px solid #000' : '1px solid #ccc' }} />)}</div>
           <button onClick={creerCalendrier} style={{ padding: '6px 14px', fontWeight: 'bold' }}>Créer</button>
         </div>
       )}
@@ -503,16 +542,11 @@ export function Planning({ onRetour }) {
 
   const blocPersonnes = (
     <div style={panel}>
-      <div style={headerRow}>
-        <strong>Mes personnes</strong>
-        <button onClick={() => setFormPersonneOuvert(!formPersonneOuvert)} style={{ padding: '4px 10px' }}>{formPersonneOuvert ? '✕' : '＋ Personne'}</button>
-      </div>
+      <div style={headerRow}><strong>Mes personnes</strong><button onClick={() => setFormPersonneOuvert(!formPersonneOuvert)} style={{ padding: '4px 10px' }}>{formPersonneOuvert ? '✕' : '＋ Personne'}</button></div>
       {formPersonneOuvert && (
         <div style={{ marginBottom: 12, padding: 12, background: '#fff', borderRadius: 8, border: '1px solid #eee' }}>
           <input value={nouvellePersonneNom} onChange={e => setNouvellePersonneNom(e.target.value)} placeholder="Nom (ex : Marie)" style={{ padding: 8, width: '100%', maxWidth: 260, marginBottom: 8, boxSizing: 'border-box' }} />
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 8 }}>
-            {PALETTE.map(c => <div key={c} onClick={() => setNouvellePersonneCouleur(c)} style={{ width: 26, height: 26, borderRadius: 5, background: c, cursor: 'pointer', border: nouvellePersonneCouleur === c ? '3px solid #000' : '1px solid #ccc' }} />)}
-          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 8 }}>{PALETTE.map(c => <div key={c} onClick={() => setNouvellePersonneCouleur(c)} style={{ width: 26, height: 26, borderRadius: 5, background: c, cursor: 'pointer', border: nouvellePersonneCouleur === c ? '3px solid #000' : '1px solid #ccc' }} />)}</div>
           <button onClick={creerPersonne} style={{ padding: '6px 14px', fontWeight: 'bold' }}>Créer</button>
         </div>
       )}
@@ -532,9 +566,7 @@ export function Planning({ onRetour }) {
 
   const blocPinceau = calActifObj && personneActiveObj && (
     <div style={{ marginBottom: 20 }}>
-      <p style={{ fontWeight: 'bold', marginBottom: 8 }}>
-        Tu modifies : <span style={{ color: calActifObj.couleur }}>{calActifObj.nom}</span> pour <span style={{ color: personneActiveObj.couleur }}>{personneActiveObj.nom}</span>
-      </p>
+      <p style={{ fontWeight: 'bold', marginBottom: 8 }}>Tu modifies : <span style={{ color: calActifObj.couleur }}>{calActifObj.nom}</span> pour <span style={{ color: personneActiveObj.couleur }}>{personneActiveObj.nom}</span></p>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
         <button onClick={() => setFormPresetOuvert(!formPresetOuvert)} style={{ padding: '6px 12px' }}>{formPresetOuvert ? '✕ Fermer' : '＋ Nouveau preset'}</button>
         <button onClick={() => setFormEvOuvert(!formEvOuvert)} style={{ padding: '6px 12px' }}>{formEvOuvert ? '✕ Fermer' : '🎉 Événement récurrent'}</button>
@@ -545,10 +577,26 @@ export function Planning({ onRetour }) {
           <div style={{ marginBottom: 10 }}>
             <select value={nouvelleCategorie} onChange={e => setNouvelleCategorie(e.target.value)} style={{ padding: 8 }}>{CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}</select>
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
-            {PALETTE.map(c => <div key={c} onClick={() => setNouvelleCouleur(c)} style={{ width: 30, height: 30, borderRadius: 6, background: c, cursor: 'pointer', border: nouvelleCouleur === c ? '3px solid #000' : '1px solid #ccc' }} />)}
-          </div>
-          <button onClick={creerPreset} style={{ padding: '8px 16px', fontWeight: 'bold' }}>Créer</button>
+          {nouvelleCategorie === 'horaire' ? (
+            <div style={{ marginBottom: 10 }}>
+              <label style={{ display: 'block', marginBottom: 4, fontWeight: 'bold' }}>Statut :</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {STATUTS.map(s => (
+                  <button key={s.id} onClick={() => setNouveauStatut(s.id)} style={{ padding: '6px 12px', borderRadius: 6, border: nouveauStatut === s.id ? '3px solid #000' : '1px solid #ccc', background: s.couleur, color: '#fff', fontWeight: 'bold' }}>{s.label}</button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <>
+              <div style={{ marginBottom: 10 }}>
+                <label style={{ display: 'block', marginBottom: 4, fontWeight: 'bold' }}>Image/logo (fond transparent conseillé) :</label>
+                <input type="file" accept="image/*" onChange={e => setNouveauFichier(e.target.files[0])} />
+              </div>
+              <label style={{ display: 'block', marginBottom: 4, fontWeight: 'bold' }}>Couleur de fond (si pas d'image) :</label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>{PALETTE.map(c => <div key={c} onClick={() => setNouvelleCouleur(c)} style={{ width: 30, height: 30, borderRadius: 6, background: c, cursor: 'pointer', border: nouvelleCouleur === c ? '3px solid #000' : '1px solid #ccc' }} />)}</div>
+            </>
+          )}
+          <button onClick={creerPreset} disabled={uploadEnCours} style={{ padding: '8px 16px', fontWeight: 'bold' }}>{uploadEnCours ? 'Envoi...' : 'Créer'}</button>
         </div>
       )}
       {formEvOuvert && (
@@ -556,15 +604,13 @@ export function Planning({ onRetour }) {
           <input value={evNom} onChange={e => setEvNom(e.target.value)} placeholder="Ex : Anniversaire de Léa" style={{ padding: 8, width: '100%', maxWidth: 260, marginBottom: 10, boxSizing: 'border-box' }} />
           <div style={{ marginBottom: 10 }}><label style={{ marginRight: 8 }}>Date :</label><input type="date" value={evDate} onChange={e => setEvDate(e.target.value)} style={{ padding: 8 }} /></div>
           <div style={{ marginBottom: 10 }}><label style={{ marginRight: 8 }}>Récurrence :</label><select value={evRecurrence} onChange={e => setEvRecurrence(e.target.value)} style={{ padding: 8 }}>{RECURRENCES.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}</select></div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
-            {PALETTE.map(c => <div key={c} onClick={() => setEvCouleur(c)} style={{ width: 30, height: 30, borderRadius: 6, background: c, cursor: 'pointer', border: evCouleur === c ? '3px solid #000' : '1px solid #ccc' }} />)}
-          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>{PALETTE.map(c => <div key={c} onClick={() => setEvCouleur(c)} style={{ width: 30, height: 30, borderRadius: 6, background: c, cursor: 'pointer', border: evCouleur === c ? '3px solid #000' : '1px solid #ccc' }} />)}</div>
           <button onClick={creerEvenement} style={{ padding: '8px 16px', fontWeight: 'bold' }}>Créer l'événement</button>
         </div>
       )}
       {evenements.filter(e => e.calendrier_id === calendrierActif).length > 0 && (
         <div style={{ marginBottom: 12, fontSize: 13 }}>
-          <strong>Événements récurrents :</strong>
+          <strong>Événements :</strong>
           {evenements.filter(e => e.calendrier_id === calendrierActif).map(ev => (
             <span key={ev.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, margin: '4px 8px 0 0', padding: '2px 8px', borderRadius: 12, background: ev.couleur, color: '#1f2937' }}>
               {ev.nom}
@@ -577,7 +623,7 @@ export function Planning({ onRetour }) {
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         <label style={{ fontWeight: 'bold' }}>Pinceau :</label>
         <select value={presetActif || ''} onChange={e => { setPresetActif(e.target.value || null); setModeGomme(false) }} style={{ padding: 10, fontSize: 16, minWidth: 200, flex: estMobile ? 1 : 'none' }}>
-          <option value="">— Aucun —</option>
+          <option value="">— Aucun (mode consultation) —</option>
           {CATEGORIES.map(cat => {
             const dedans = presetsCalendrierActif.filter(p => p.type === cat.id)
             if (dedans.length === 0) return null
@@ -590,10 +636,10 @@ export function Planning({ onRetour }) {
           <button onClick={() => supprimerPreset(presetActif)} style={{ padding: '6px 10px', color: '#c00' }}>🗑️</button>
         </>)}
       </div>
-      {(presetActif || modeGomme) && (
-        <p style={{ color: modeGomme ? '#c00' : '#16a34a', marginTop: 8 }}>
-          {modeGomme ? '🧹 Clique sur un jour pour effacer.' : '✏️ Clique sur un jour (reclique pour enlever).'}
-        </p>
+      {(presetActif || modeGomme) ? (
+        <p style={{ color: modeGomme ? '#c00' : '#16a34a', marginTop: 8 }}>{modeGomme ? '🧹 Clique sur un jour pour effacer.' : '✏️ Clique sur un jour pour peindre.'}</p>
+      ) : (
+        <p style={{ color: '#6b7280', marginTop: 8, fontSize: 13 }}>👆 Mode consultation : clique sur un jour pour voir son détail.</p>
       )}
     </div>
   )
@@ -627,9 +673,7 @@ export function Planning({ onRetour }) {
   return (
     <div style={{ maxWidth: 1100, margin: estMobile ? '0 auto' : '30px auto', padding: estMobile ? '12px 10px 80px' : '0 16px' }}>
       {sauvegarde !== 'idle' && (
-        <div style={{ position: 'fixed', top: 12, right: 12, padding: '6px 14px', borderRadius: 20, background: sauvegarde === 'saving' ? '#fef3c7' : '#dcfce7', color: sauvegarde === 'saving' ? '#92400e' : '#166534', fontSize: 13, fontWeight: 'bold', zIndex: 300, boxShadow: '0 2px 6px rgba(0,0,0,0.15)' }}>
-          {sauvegarde === 'saving' ? '💾 Enregistrement...' : '✓ Enregistré'}
-        </div>
+        <div style={{ position: 'fixed', top: 12, right: 12, padding: '6px 14px', borderRadius: 20, background: sauvegarde === 'saving' ? '#fef3c7' : '#dcfce7', color: sauvegarde === 'saving' ? '#92400e' : '#166534', fontSize: 13, fontWeight: 'bold', zIndex: 300, boxShadow: '0 2px 6px rgba(0,0,0,0.15)' }}>{sauvegarde === 'saving' ? '💾 Enregistrement...' : '✓ Enregistré'}</div>
       )}
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
@@ -638,14 +682,8 @@ export function Planning({ onRetour }) {
         <span style={{ width: 50 }} />
       </div>
 
-      {/* PC : tout affiché. MOBILE : un onglet à la fois */}
       {!estMobile ? (
-        <>
-          {blocCalendriers}
-          {blocPersonnes}
-          {blocPinceau}
-          {zoneCalendrier}
-        </>
+        <>{blocCalendriers}{blocPersonnes}{blocPinceau}{zoneCalendrier}</>
       ) : (
         <>
           {ongletMobile === 'vue' && zoneCalendrier}
@@ -654,34 +692,77 @@ export function Planning({ onRetour }) {
         </>
       )}
 
-      {/* Barre d'onglets mobile en bas */}
       {estMobile && (
         <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, display: 'flex', background: '#fff', borderTop: '1px solid #e5e7eb', boxShadow: '0 -2px 8px rgba(0,0,0,0.08)', zIndex: 200 }}>
           {[['vue','📅','Vue'],['peindre','🖌️','Peindre'],['gerer','⚙️','Gérer']].map(([id, icone, label]) => (
-            <button key={id} onClick={() => setOngletMobile(id)}
-              style={{ flex: 1, border: 'none', borderRadius: 0, background: ongletMobile === id ? '#eef2ff' : '#fff', padding: '10px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, color: ongletMobile === id ? '#3b82f6' : '#6b7280', fontWeight: ongletMobile === id ? 'bold' : 'normal' }}>
-              <span style={{ fontSize: 20 }}>{icone}</span>
-              <span style={{ fontSize: 11 }}>{label}</span>
+            <button key={id} onClick={() => setOngletMobile(id)} style={{ flex: 1, border: 'none', borderRadius: 0, background: ongletMobile === id ? '#eef2ff' : '#fff', padding: '10px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, color: ongletMobile === id ? '#3b82f6' : '#6b7280', fontWeight: ongletMobile === id ? 'bold' : 'normal' }}>
+              <span style={{ fontSize: 20 }}>{icone}</span><span style={{ fontSize: 11 }}>{label}</span>
             </button>
           ))}
         </div>
       )}
 
+      {/* POPUP DÉTAIL JOUR */}
+      {detailJour && (() => {
+        const d = detailJour.dateObj
+        const r = resumeJour(d.getFullYear(), d.getMonth(), d.getDate(), detailJour.personneId)
+        const pers = personnes.find(p => p.id === detailJour.personneId)
+        return (
+          <div onClick={() => setDetailJour(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 400, padding: 16 }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, padding: 20, width: '100%', maxWidth: 360, maxHeight: '80vh', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <h3 style={{ margin: 0 }}>{d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}</h3>
+                <button onClick={() => setDetailJour(null)} style={{ border: 'none', background: 'transparent', fontSize: 20, cursor: 'pointer' }}>✕</button>
+              </div>
+              {pers && <p style={{ marginTop: 0, color: '#6b7280' }}><span style={pastille(pers.couleur, 10)} /> {pers.nom}</p>}
+              {r.presetsDetail.length === 0 && r.evenements.length === 0 && <p style={{ color: '#9ca3af' }}>Rien de prévu ce jour.</p>}
+              {r.presetsDetail.map((p, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 8, borderRadius: 8, marginBottom: 6, background: p.type === 'horaire' ? couleurStatut(p.statut_horaire) + '22' : '#f3f4f6' }}>
+                  {p.type === 'horaire'
+                    ? <span style={pastille(couleurStatut(p.statut_horaire), 16)} />
+                    : (p.image_url ? <img src={p.image_url} alt="" style={{ width: 24, height: 24, objectFit: 'contain' }} /> : <span style={pastille(p.couleur, 16)} />)}
+                  <div>
+                    <div style={{ fontWeight: 'bold' }}>{p.nom}</div>
+                    <div style={{ fontSize: 12, color: '#6b7280' }}>{CATEGORIES.find(c => c.id === p.type)?.label}{p.type === 'horaire' ? ' — ' + (STATUTS.find(s => s.id === p.statut_horaire)?.label || '') : ''}</div>
+                  </div>
+                </div>
+              ))}
+              {r.evenements.map((ev, i) => (
+                <div key={'e' + i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 8, borderRadius: 8, marginBottom: 6, background: ev.couleur + '33' }}>
+                  <span style={{ fontSize: 18 }}>🎉</span><div style={{ fontWeight: 'bold' }}>{ev.nom}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* POPUP ÉDITION */}
       {edition && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 400, padding: 16 }}>
-          <div style={{ background: '#fff', borderRadius: 10, padding: 20, width: '100%', maxWidth: 320 }}>
+          <div style={{ background: '#fff', borderRadius: 10, padding: 20, width: '100%', maxWidth: 340, maxHeight: '85vh', overflowY: 'auto' }}>
             <h3 style={{ marginTop: 0 }}>Modifier {edition.type === 'preset' ? 'le preset' : edition.type === 'calendrier' ? 'le calendrier' : edition.type === 'personne' ? 'la personne' : "l'événement"}</h3>
             <input value={edition.nom} onChange={e => setEdition({ ...edition, nom: e.target.value })} style={{ padding: 8, width: '100%', marginBottom: 10, boxSizing: 'border-box' }} />
-            {edition.type === 'preset' && (
+            {edition.type === 'preset' && (<>
               <select value={edition.categorie} onChange={e => setEdition({ ...edition, categorie: e.target.value })} style={{ padding: 8, marginBottom: 10, width: '100%' }}>{CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}</select>
+              {edition.categorie === 'horaire' ? (
+                <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+                  {STATUTS.map(s => <button key={s.id} onClick={() => setEdition({ ...edition, statut: s.id })} style={{ padding: '6px 10px', borderRadius: 6, border: edition.statut === s.id ? '3px solid #000' : '1px solid #ccc', background: s.couleur, color: '#fff', fontWeight: 'bold', fontSize: 12 }}>{s.label}</button>)}
+                </div>
+              ) : (<>
+                {edition.image_url && <div style={{ marginBottom: 8 }}><img src={edition.image_url} alt="" style={{ width: 40, height: 40, objectFit: 'contain' }} /> <span style={{ fontSize: 12, color: '#6b7280' }}>image actuelle</span></div>}
+                <div style={{ marginBottom: 10 }}><label style={{ fontSize: 13 }}>Changer l'image : </label><input type="file" accept="image/*" onChange={e => setEdition({ ...edition, fichier: e.target.files[0] })} /></div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 10 }}>{PALETTE.map(c => <div key={c} onClick={() => setEdition({ ...edition, couleur: c })} style={{ width: 24, height: 24, borderRadius: 5, background: c, cursor: 'pointer', border: edition.couleur === c ? '3px solid #000' : '1px solid #ccc' }} />)}</div>
+              </>)}
+            </>)}
+            {(edition.type === 'calendrier' || edition.type === 'personne') && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 14 }}>{PALETTE.map(c => <div key={c} onClick={() => setEdition({ ...edition, couleur: c })} style={{ width: 26, height: 26, borderRadius: 5, background: c, cursor: 'pointer', border: edition.couleur === c ? '3px solid #000' : '1px solid #ccc' }} />)}</div>
             )}
             {edition.type === 'evenement' && (<>
               <input type="date" value={edition.date} onChange={e => setEdition({ ...edition, date: e.target.value })} style={{ padding: 8, marginBottom: 10, width: '100%', boxSizing: 'border-box' }} />
               <select value={edition.recurrence} onChange={e => setEdition({ ...edition, recurrence: e.target.value })} style={{ padding: 8, marginBottom: 10, width: '100%' }}>{RECURRENCES.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}</select>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 14 }}>{PALETTE.map(c => <div key={c} onClick={() => setEdition({ ...edition, couleur: c })} style={{ width: 26, height: 26, borderRadius: 5, background: c, cursor: 'pointer', border: edition.couleur === c ? '3px solid #000' : '1px solid #ccc' }} />)}</div>
             </>)}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 14 }}>
-              {PALETTE.map(c => <div key={c} onClick={() => setEdition({ ...edition, couleur: c })} style={{ width: 26, height: 26, borderRadius: 5, background: c, cursor: 'pointer', border: edition.couleur === c ? '3px solid #000' : '1px solid #ccc' }} />)}
-            </div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button onClick={() => setEdition(null)} style={{ padding: '6px 14px' }}>Annuler</button>
               <button onClick={enregistrerEdition} style={{ padding: '6px 14px', fontWeight: 'bold' }}>Enregistrer</button>
