@@ -3,19 +3,17 @@ import { supabase } from './supabaseClient'
 
 const JOURS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim']
 const MOIS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre']
-
 const CATEGORIES = [
   { id: 'horaire', label: 'Horaires' },
   { id: 'rayon', label: 'Rayons' },
   { id: 'activite', label: 'Activités' },
 ]
-
 const RECURRENCES = [
   { id: 'annuelle', label: 'Chaque année' },
   { id: 'mensuelle', label: 'Chaque mois' },
   { id: 'hebdomadaire', label: 'Chaque semaine' },
 ]
-
+const ORDRE_CATEGORIE = { horaire: 0, rayon: 1, activite: 2, evenement: 3 }
 const PALETTE = [
   '#ef4444', '#f97316', '#f59e0b', '#eab308',
   '#84cc16', '#22c55e', '#10b981', '#14b8a6',
@@ -24,25 +22,26 @@ const PALETTE = [
   '#f43f5e', '#78716c', '#6b7280', '#1f2937',
 ]
 
+const panel = { border: '1px solid #e5e7eb', borderRadius: 10, padding: 16, marginBottom: 20, background: '#fafafa' }
+const headerRow = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }
+const pastille = (couleur, taille = 14) => ({ width: taille, height: taille, borderRadius: '50%', background: couleur, display: 'inline-block', flexShrink: 0 })
+const btnToggle = (actif) => ({
+  padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
+  border: actif ? '2px solid #333' : '1px solid #ccc',
+  background: actif ? '#e0e7ff' : '#fff', color: '#1f2937', fontWeight: actif ? 'bold' : 'normal'
+})
+
 function cleJour(annee, mois, jour) {
   const m = String(mois + 1).padStart(2, '0')
   const j = String(jour).padStart(2, '0')
   return `${annee}-${m}-${j}`
 }
-
-// Un événement récurrent tombe-t-il sur cette date ?
 function evenementSurDate(ev, dateObj) {
   const ref = new Date(ev.date_ref + 'T00:00:00')
-  if (dateObj < ref) return false // pas avant la date de référence
-  if (ev.recurrence === 'annuelle') {
-    return ref.getDate() === dateObj.getDate() && ref.getMonth() === dateObj.getMonth()
-  }
-  if (ev.recurrence === 'mensuelle') {
-    return ref.getDate() === dateObj.getDate()
-  }
-  if (ev.recurrence === 'hebdomadaire') {
-    return ref.getDay() === dateObj.getDay()
-  }
+  if (dateObj < ref) return false
+  if (ev.recurrence === 'annuelle') return ref.getDate() === dateObj.getDate() && ref.getMonth() === dateObj.getMonth()
+  if (ev.recurrence === 'mensuelle') return ref.getDate() === dateObj.getDate()
+  if (ev.recurrence === 'hebdomadaire') return ref.getDay() === dateObj.getDay()
   return false
 }
 
@@ -50,18 +49,33 @@ export function Planning({ onRetour }) {
   const today = new Date()
   const [annee, setAnnee] = useState(today.getFullYear())
   const [mois, setMois] = useState(today.getMonth())
-  const [vue, setVue] = useState('mois') // 'semaine' | 'mois' | 'annee'
-  const [ancrageSemaine, setAncrageSemaine] = useState(new Date()) // date dans la semaine affichée
+  const [vue, setVue] = useState('mois')
+  const [ancrageSemaine, setAncrageSemaine] = useState(new Date())
+
+  // Détection mobile
+  const [estMobile, setEstMobile] = useState(window.innerWidth < 768)
+  const [ongletMobile, setOngletMobile] = useState('vue') // 'vue' | 'peindre' | 'gerer'
+  useEffect(() => {
+    function onResize() { setEstMobile(window.innerWidth < 768) }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
 
   const [calendriers, setCalendriers] = useState([])
   const [calendrierActif, setCalendrierActif] = useState(null)
   const [calendriersVisibles, setCalendriersVisibles] = useState([])
 
+  const [personnes, setPersonnes] = useState([])
+  const [personneActive, setPersonneActive] = useState(null)
+  const [personnesVisibles, setPersonnesVisibles] = useState([])
+
   const [presets, setPresets] = useState([])
   const [application, setApplication] = useState([])
   const [evenements, setEvenements] = useState([])
   const [presetActif, setPresetActif] = useState(null)
+  const [modeGomme, setModeGomme] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [sauvegarde, setSauvegarde] = useState('idle')
 
   const [formPresetOuvert, setFormPresetOuvert] = useState(false)
   const [nouveauNom, setNouveauNom] = useState('')
@@ -78,6 +92,14 @@ export function Planning({ onRetour }) {
   const [evDate, setEvDate] = useState('')
   const [evRecurrence, setEvRecurrence] = useState('annuelle')
 
+  const [formPersonneOuvert, setFormPersonneOuvert] = useState(false)
+  const [nouvellePersonneNom, setNouvellePersonneNom] = useState('')
+  const [nouvellePersonneCouleur, setNouvellePersonneCouleur] = useState(PALETTE[6])
+
+  const [edition, setEdition] = useState(null)
+
+  function flashSauvegarde() { setSauvegarde('saved'); setTimeout(() => setSauvegarde('idle'), 1200) }
+
   // --- Chargements ---
   async function chargerCalendriers() {
     const { data } = await supabase.from('calendriers').select('*').order('ordre')
@@ -86,6 +108,16 @@ export function Planning({ onRetour }) {
       if (data.length > 0) {
         setCalendrierActif(prev => prev || data[0].id)
         setCalendriersVisibles(prev => prev.length ? prev : data.map(c => c.id))
+      }
+    }
+  }
+  async function chargerPersonnes() {
+    const { data } = await supabase.from('personnes').select('*').order('ordre')
+    if (data) {
+      setPersonnes(data)
+      if (data.length > 0) {
+        setPersonneActive(prev => prev || data[0].id)
+        setPersonnesVisibles(prev => prev.length ? prev : data.map(p => p.id))
       }
     }
   }
@@ -99,162 +131,184 @@ export function Planning({ onRetour }) {
   }
   async function chargerJours() {
     setLoading(true)
-    // on charge large (toute l'année affichée) pour simplifier les 3 vues
-    const debut = `${annee}-01-01`
-    const fin = `${annee}-12-31`
-    const { data } = await supabase
-      .from('planning_jours').select('*')
-      .gte('jour', debut).lte('jour', fin)
+    const { data } = await supabase.from('planning_jours').select('*').gte('jour', `${annee}-01-01`).lte('jour', `${annee}-12-31`)
     if (data) setApplication(data)
     setLoading(false)
   }
 
-  useEffect(() => { chargerCalendriers(); chargerPresets(); chargerEvenements() }, [])
+  useEffect(() => { chargerCalendriers(); chargerPersonnes(); chargerPresets(); chargerEvenements() }, [])
   useEffect(() => { chargerJours() }, [annee])
 
   // --- Calendriers ---
   async function creerCalendrier() {
     if (!nouveauCalNom.trim()) return
-    const ordreMax = calendriers.reduce((max, c) => Math.max(max, c.ordre), 0)
-    const { data } = await supabase.from('calendriers').insert({
-      nom: nouveauCalNom.trim(), couleur: nouveauCalCouleur, ordre: ordreMax + 1,
-    }).select()
+    const ordreMax = calendriers.reduce((m, c) => Math.max(m, c.ordre), 0)
+    setSauvegarde('saving')
+    const { data } = await supabase.from('calendriers').insert({ nom: nouveauCalNom.trim(), couleur: nouveauCalCouleur, ordre: ordreMax + 1 }).select()
     setNouveauCalNom(''); setFormCalOuvert(false)
     await chargerCalendriers()
     if (data && data[0]) setCalendriersVisibles(v => [...v, data[0].id])
+    flashSauvegarde()
   }
   async function supprimerCalendrier(id) {
     if (!confirm('Supprimer ce calendrier ? Tous ses presets, jours et événements seront supprimés.')) return
+    setSauvegarde('saving')
     await supabase.from('calendriers').delete().eq('id', id)
     setCalendriersVisibles(v => v.filter(x => x !== id))
     if (calendrierActif === id) { setCalendrierActif(null); setPresetActif(null) }
     await chargerCalendriers(); await chargerPresets(); await chargerEvenements(); await chargerJours()
+    flashSauvegarde()
   }
-  function toggleVisible(id) {
-    setCalendriersVisibles(v => v.includes(id) ? v.filter(x => x !== id) : [...v, id])
+  function toggleVisible(id) { setCalendriersVisibles(v => v.includes(id) ? v.filter(x => x !== id) : [...v, id]) }
+  function changerCalendrierActif(id) { setCalendrierActif(id); setPresetActif(null) }
+
+  // --- Personnes ---
+  async function creerPersonne() {
+    if (!nouvellePersonneNom.trim()) return
+    const ordreMax = personnes.reduce((m, p) => Math.max(m, p.ordre), 0)
+    setSauvegarde('saving')
+    const { data } = await supabase.from('personnes').insert({ nom: nouvellePersonneNom.trim(), couleur: nouvellePersonneCouleur, ordre: ordreMax + 1 }).select()
+    setNouvellePersonneNom(''); setFormPersonneOuvert(false)
+    await chargerPersonnes()
+    if (data && data[0]) setPersonnesVisibles(v => [...v, data[0].id])
+    flashSauvegarde()
   }
-  // CORRECTION DU BUG : changer de calendrier désarme le pinceau
-  function changerCalendrierActif(id) {
-    setCalendrierActif(id)
-    setPresetActif(null)
+  async function supprimerPersonne(id) {
+    if (!confirm('Supprimer cette personne ? Son planning sera supprimé.')) return
+    setSauvegarde('saving')
+    await supabase.from('personnes').delete().eq('id', id)
+    setPersonnesVisibles(v => v.filter(x => x !== id))
+    if (personneActive === id) setPersonneActive(null)
+    await chargerPersonnes(); await chargerJours()
+    flashSauvegarde()
   }
+  function togglePersonneVisible(id) { setPersonnesVisibles(v => v.includes(id) ? v.filter(x => x !== id) : [...v, id]) }
 
   // --- Presets ---
   async function creerPreset() {
     if (!nouveauNom.trim() || !calendrierActif) return
-    await supabase.from('presets').insert({
-      nom: nouveauNom.trim(), couleur: nouvelleCouleur,
-      type: nouvelleCategorie, calendrier_id: calendrierActif,
-    })
+    setSauvegarde('saving')
+    await supabase.from('presets').insert({ nom: nouveauNom.trim(), couleur: nouvelleCouleur, type: nouvelleCategorie, calendrier_id: calendrierActif })
     setNouveauNom(''); setFormPresetOuvert(false)
-    chargerPresets()
+    await chargerPresets()
+    flashSauvegarde()
   }
   async function supprimerPreset(id) {
     if (!confirm('Supprimer ce preset ?')) return
+    setSauvegarde('saving')
     await supabase.from('presets').delete().eq('id', id)
     if (presetActif === id) setPresetActif(null)
-    chargerPresets(); chargerJours()
+    await chargerPresets(); await chargerJours()
+    flashSauvegarde()
   }
 
-  // --- Événements récurrents ---
+  // --- Événements ---
   async function creerEvenement() {
     if (!evNom.trim() || !evDate || !calendrierActif) return
-    await supabase.from('evenements').insert({
-      calendrier_id: calendrierActif, nom: evNom.trim(),
-      couleur: evCouleur, date_ref: evDate, recurrence: evRecurrence,
-    })
+    setSauvegarde('saving')
+    await supabase.from('evenements').insert({ calendrier_id: calendrierActif, nom: evNom.trim(), couleur: evCouleur, date_ref: evDate, recurrence: evRecurrence })
     setEvNom(''); setEvDate(''); setFormEvOuvert(false)
-    chargerEvenements()
+    await chargerEvenements()
+    flashSauvegarde()
   }
   async function supprimerEvenement(id) {
     if (!confirm('Supprimer cet événement récurrent ?')) return
+    setSauvegarde('saving')
     await supabase.from('evenements').delete().eq('id', id)
-    chargerEvenements()
+    await chargerEvenements()
+    flashSauvegarde()
   }
 
-  // --- Peinture (avec garde-fou) ---
-  async function peindreJour(cle) {
-    if (!presetActif || !calendrierActif) return
-    // garde-fou : le preset doit appartenir au calendrier édité
+  // --- Édition ---
+  function ouvrirEdition(type, obj) {
+    if (type === 'preset') setEdition({ type, id: obj.id, nom: obj.nom, couleur: obj.couleur, categorie: obj.type })
+    else if (type === 'evenement') setEdition({ type, id: obj.id, nom: obj.nom, couleur: obj.couleur, date: obj.date_ref, recurrence: obj.recurrence })
+    else setEdition({ type, id: obj.id, nom: obj.nom, couleur: obj.couleur })
+  }
+  async function enregistrerEdition() {
+    if (!edition) return
+    setSauvegarde('saving')
+    if (edition.type === 'preset') { await supabase.from('presets').update({ nom: edition.nom, couleur: edition.couleur, type: edition.categorie }).eq('id', edition.id); await chargerPresets() }
+    else if (edition.type === 'calendrier') { await supabase.from('calendriers').update({ nom: edition.nom, couleur: edition.couleur }).eq('id', edition.id); await chargerCalendriers() }
+    else if (edition.type === 'personne') { await supabase.from('personnes').update({ nom: edition.nom, couleur: edition.couleur }).eq('id', edition.id); await chargerPersonnes() }
+    else if (edition.type === 'evenement') { await supabase.from('evenements').update({ nom: edition.nom, couleur: edition.couleur, date_ref: edition.date, recurrence: edition.recurrence }).eq('id', edition.id); await chargerEvenements() }
+    setEdition(null)
+    flashSauvegarde()
+  }
+
+  // --- Peinture / gomme ---
+  async function clicJour(cle, personneId = personneActive) {
+    if (!calendrierActif || !personneId) return
+    if (modeGomme) {
+      const aSupprimer = application.filter(a => a.jour === cle && a.calendrier_id === calendrierActif && a.personne_id === personneId)
+      if (aSupprimer.length === 0) return
+      setSauvegarde('saving')
+      await supabase.from('planning_jours').delete().in('id', aSupprimer.map(a => a.id))
+      await chargerJours(); flashSauvegarde(); return
+    }
+    if (!presetActif) return
     const preset = presets.find(p => p.id === presetActif)
-    if (!preset || preset.calendrier_id !== calendrierActif) {
-      setPresetActif(null)
-      return
-    }
-    const existe = application.find(a => a.jour === cle && a.preset_id === presetActif)
-    if (existe) {
-      await supabase.from('planning_jours').delete().eq('id', existe.id)
-    } else {
-      await supabase.from('planning_jours').insert({
-        jour: cle, preset_id: presetActif, calendrier_id: calendrierActif,
-      })
-    }
-    chargerJours()
+    if (!preset || preset.calendrier_id !== calendrierActif) { setPresetActif(null); return }
+    setSauvegarde('saving')
+    const existe = application.find(a => a.jour === cle && a.preset_id === presetActif && a.personne_id === personneId)
+    if (existe) await supabase.from('planning_jours').delete().eq('id', existe.id)
+    else await supabase.from('planning_jours').insert({ jour: cle, preset_id: presetActif, calendrier_id: calendrierActif, personne_id: personneId })
+    await chargerJours(); flashSauvegarde()
   }
 
   const presetsCalendrierActif = presets.filter(p => p.calendrier_id === calendrierActif)
 
-  // Infos d'un jour (presets peints + événements récurrents), regroupées par calendrier visible
   function infosDuJour(anneeJ, moisJ, jourJ) {
     const cle = cleJour(anneeJ, moisJ, jourJ)
     const dateObj = new Date(anneeJ, moisJ, jourJ)
     const parCalendrier = {}
-
-    application.filter(a => a.jour === cle && calendriersVisibles.includes(a.calendrier_id)).forEach(a => {
+    application.filter(a => a.jour === cle && a.personne_id === personneActive && calendriersVisibles.includes(a.calendrier_id)).forEach(a => {
       const preset = presets.find(p => p.id === a.preset_id)
       if (!preset) return
       if (!parCalendrier[a.calendrier_id]) parCalendrier[a.calendrier_id] = []
-      parCalendrier[a.calendrier_id].push({ nom: preset.nom, couleur: preset.couleur })
+      parCalendrier[a.calendrier_id].push({ nom: preset.nom, couleur: preset.couleur, type: preset.type })
     })
     evenements.filter(ev => calendriersVisibles.includes(ev.calendrier_id) && evenementSurDate(ev, dateObj)).forEach(ev => {
       if (!parCalendrier[ev.calendrier_id]) parCalendrier[ev.calendrier_id] = []
-      parCalendrier[ev.calendrier_id].push({ nom: '🎉 ' + ev.nom, couleur: ev.couleur })
+      parCalendrier[ev.calendrier_id].push({ nom: '🎉 ' + ev.nom, couleur: ev.couleur, type: 'evenement' })
+    })
+    Object.keys(parCalendrier).forEach(cid => {
+      parCalendrier[cid].sort((a, b) => (ORDRE_CATEGORIE[a.type] ?? 9) - (ORDRE_CATEGORIE[b.type] ?? 9))
     })
     return parCalendrier
   }
 
-  // --- Navigation ---
   function moisPrecedent() { if (mois === 0) { setMois(11); setAnnee(annee - 1) } else setMois(mois - 1) }
   function moisSuivant() { if (mois === 11) { setMois(0); setAnnee(annee + 1) } else setMois(mois + 1) }
   function semainePrecedente() { const d = new Date(ancrageSemaine); d.setDate(d.getDate() - 7); setAncrageSemaine(d); setAnnee(d.getFullYear()) }
   function semaineSuivante() { const d = new Date(ancrageSemaine); d.setDate(d.getDate() + 7); setAncrageSemaine(d); setAnnee(d.getFullYear()) }
 
   const calActifObj = calendriers.find(c => c.id === calendrierActif)
+  const personneActiveObj = personnes.find(p => p.id === personneActive)
 
-  // Cellule réutilisable
   function Cellule({ a, m, j, haut = 95, fontJour = 12 }) {
     const infos = infosDuJour(a, m, j)
     const cals = Object.keys(infos)
     const estAujourdhui = (a === today.getFullYear() && m === today.getMonth() && j === today.getDate())
     return (
-      <div onClick={() => peindreJour(cleJour(a, m, j))}
-        style={{
-          minHeight: haut, border: estAujourdhui ? '2px solid #3b82f6' : '1px solid #ddd',
-          borderRadius: 8, padding: 4, cursor: presetActif ? 'pointer' : 'default', background: '#fff'
-        }}>
+      <div onClick={() => clicJour(cleJour(a, m, j))}
+        style={{ minHeight: haut, border: estAujourdhui ? '2px solid #3b82f6' : '1px solid #e5e7eb', borderRadius: 8, padding: 4,
+          cursor: (presetActif || modeGomme) ? 'pointer' : 'default', background: '#fff' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', gap: 3 }}>
-            {cals.map(cid => {
-              const cal = calendriers.find(c => c.id === cid)
-              return cal ? <span key={cid} title={cal.nom}
-                style={{ width: 9, height: 9, borderRadius: '50%', background: cal.couleur, display: 'inline-block' }} /> : null
-            })}
+            {cals.map(cid => { const cal = calendriers.find(c => c.id === cid); return cal ? <span key={cid} title={cal.nom} style={pastille(cal.couleur, 9)} /> : null })}
           </div>
-          <div style={{ fontSize: fontJour, color: '#999' }}>{j}</div>
+          <div style={{ fontSize: fontJour, color: '#9ca3af' }}>{j}</div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 2 }}>
           {cals.flatMap(cid => infos[cid].map((it, i) => (
-            <div key={cid + '-' + i} style={{
-              background: it.couleur, borderRadius: 4, padding: '2px 4px',
-              fontSize: 11, color: '#000', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis'
-            }}>{it.nom}</div>
+            <div key={cid + '-' + i} style={{ background: it.couleur, borderRadius: 4, padding: '2px 4px', fontSize: 11, color: '#1f2937', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{it.nom}</div>
           )))}
         </div>
       </div>
     )
   }
 
-  // --- Rendus des 3 vues ---
   function rendreMois() {
     const premier = new Date(annee, mois, 1)
     let dec = premier.getDay() - 1; if (dec < 0) dec = 6
@@ -264,11 +318,11 @@ export function Planning({ onRetour }) {
     for (let j = 1; j <= nb; j++) cells.push(j)
     return (
       <>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 4 }}>
-          {JOURS.map(j => <div key={j} style={{ textAlign: 'center', fontWeight: 'bold', color: '#666' }}>{j}</div>)}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: estMobile ? 2 : 4, marginBottom: 4 }}>
+          {JOURS.map(j => <div key={j} style={{ textAlign: 'center', fontWeight: 'bold', color: '#6b7280', fontSize: estMobile ? 11 : 14 }}>{estMobile ? j[0] : j}</div>)}
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
-          {cells.map((j, idx) => j === null ? <div key={idx} /> : <Cellule key={idx} a={annee} m={mois} j={j} />)}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: estMobile ? 2 : 4 }}>
+          {cells.map((j, idx) => j === null ? <div key={idx} /> : <Cellule key={idx} a={annee} m={mois} j={j} haut={estMobile ? 64 : 95} fontJour={estMobile ? 11 : 12} />)}
         </div>
       </>
     )
@@ -280,10 +334,26 @@ export function Planning({ onRetour }) {
     const lundi = new Date(d); lundi.setDate(d.getDate() - dec)
     const jours = []
     for (let i = 0; i < 7; i++) { const x = new Date(lundi); x.setDate(lundi.getDate() + i); jours.push(x) }
+    // Sur mobile : liste verticale (pas de scroll horizontal)
+    if (estMobile) {
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {jours.map((x, idx) => (
+            <div key={idx} style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
+              <div style={{ width: 52, flexShrink: 0, textAlign: 'center', fontWeight: 'bold', color: '#6b7280', display: 'flex', flexDirection: 'column', justifyContent: 'center', background: '#f3f4f6', borderRadius: 8, padding: 4 }}>
+                <div style={{ fontSize: 12 }}>{JOURS[idx]}</div>
+                <div style={{ fontSize: 18 }}>{x.getDate()}</div>
+              </div>
+              <div style={{ flex: 1 }}><Cellule a={x.getFullYear()} m={x.getMonth()} j={x.getDate()} haut={70} /></div>
+            </div>
+          ))}
+        </div>
+      )
+    }
     return (
       <>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 4 }}>
-          {JOURS.map(j => <div key={j} style={{ textAlign: 'center', fontWeight: 'bold', color: '#666' }}>{j}</div>)}
+          {JOURS.map(j => <div key={j} style={{ textAlign: 'center', fontWeight: 'bold', color: '#6b7280' }}>{j}</div>)}
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
           {jours.map((x, idx) => <Cellule key={idx} a={x.getFullYear()} m={x.getMonth()} j={x.getDate()} haut={160} />)}
@@ -294,7 +364,7 @@ export function Planning({ onRetour }) {
 
   function rendreAnnee() {
     return (
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: estMobile ? '1fr' : 'repeat(auto-fill, minmax(230px, 1fr))', gap: 16 }}>
         {MOIS.map((nomMois, mIdx) => {
           const premier = new Date(annee, mIdx, 1)
           let dec = premier.getDay() - 1; if (dec < 0) dec = 6
@@ -303,25 +373,20 @@ export function Planning({ onRetour }) {
           for (let i = 0; i < dec; i++) cells.push(null)
           for (let j = 1; j <= nb; j++) cells.push(j)
           return (
-            <div key={mIdx} style={{ border: '1px solid #eee', borderRadius: 8, padding: 8 }}>
+            <div key={mIdx} style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: 8, background: '#fff' }}>
               <div style={{ fontWeight: 'bold', textAlign: 'center', marginBottom: 6 }}>{nomMois}</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2 }}>
-                {['L','M','M','J','V','S','D'].map((d, i) => <div key={i} style={{ fontSize: 10, textAlign: 'center', color: '#aaa' }}>{d}</div>)}
+                {['L','M','M','J','V','S','D'].map((d, i) => <div key={i} style={{ fontSize: 10, textAlign: 'center', color: '#9ca3af' }}>{d}</div>)}
                 {cells.map((j, idx) => {
                   if (j === null) return <div key={idx} />
                   const infos = infosDuJour(annee, mIdx, j)
                   const cals = Object.keys(infos)
                   return (
-                    <div key={idx} title={cals.length ? 'Des infos ce jour' : ''}
-                      style={{ fontSize: 10, textAlign: 'center', padding: 2, borderRadius: 3,
-                        background: cals.length ? '#f0f0f0' : 'transparent', position: 'relative' }}>
+                    <div key={idx} style={{ fontSize: 10, textAlign: 'center', padding: 2, borderRadius: 3, background: cals.length ? '#eef2ff' : 'transparent' }}>
                       {j}
                       {cals.length > 0 && (
                         <div style={{ display: 'flex', justifyContent: 'center', gap: 1 }}>
-                          {cals.slice(0, 3).map(cid => {
-                            const cal = calendriers.find(c => c.id === cid)
-                            return cal ? <span key={cid} style={{ width: 4, height: 4, borderRadius: '50%', background: cal.couleur }} /> : null
-                          })}
+                          {cals.slice(0, 3).map(cid => { const cal = calendriers.find(c => c.id === cid); return cal ? <span key={cid} style={pastille(cal.couleur, 4)} /> : null })}
                         </div>
                       )}
                     </div>
@@ -335,186 +400,295 @@ export function Planning({ onRetour }) {
     )
   }
 
-  return (
-    <div style={{ maxWidth: 1100, margin: '30px auto', padding: '0 16px' }}>
-      <button onClick={onRetour} style={{ marginBottom: 16 }}>← Retour au hub</button>
-      <h1>📅 Planning</h1>
+  function rendreEquipe() {
+    const d = new Date(ancrageSemaine)
+    let dec = d.getDay() - 1; if (dec < 0) dec = 6
+    const lundi = new Date(d); lundi.setDate(d.getDate() - dec)
+    const joursSemaine = []
+    for (let i = 0; i < 7; i++) { const x = new Date(lundi); x.setDate(lundi.getDate() + i); joursSemaine.push(x) }
+    const personnesAffichees = personnes.filter(p => personnesVisibles.includes(p.id))
+    if (personnesAffichees.length === 0) return <p>Coche au moins une personne dans l'onglet Gérer pour la voir ici.</p>
 
-      {/* CALENDRIERS */}
-      <div style={{ border: '1px solid #e5e5e5', borderRadius: 10, padding: 16, marginBottom: 20, background: '#fafafa' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-          <strong>Mes calendriers</strong>
-          <button onClick={() => setFormCalOuvert(!formCalOuvert)} style={{ padding: '4px 10px' }}>
-            {formCalOuvert ? '✕' : '＋ Calendrier'}
-          </button>
-        </div>
-        {formCalOuvert && (
-          <div style={{ marginBottom: 12, padding: 12, background: '#fff', borderRadius: 8, border: '1px solid #eee' }}>
-            <input value={nouveauCalNom} onChange={e => setNouveauCalNom(e.target.value)}
-              placeholder="Nom (ex : Perso, Anniversaires)" style={{ padding: 8, width: '100%', maxWidth: 260, marginBottom: 8 }} />
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 8 }}>
-              {PALETTE.map(c => <div key={c} onClick={() => setNouveauCalCouleur(c)}
-                style={{ width: 24, height: 24, borderRadius: 5, background: c, cursor: 'pointer',
-                  border: nouveauCalCouleur === c ? '3px solid #000' : '1px solid #ccc' }} />)}
-            </div>
-            <button onClick={creerCalendrier} style={{ padding: '6px 14px', fontWeight: 'bold' }}>Créer</button>
-          </div>
-        )}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {calendriers.map(c => (
-            <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <input type="checkbox" checked={calendriersVisibles.includes(c.id)} onChange={() => toggleVisible(c.id)} />
-              <span style={{ width: 14, height: 14, borderRadius: '50%', background: c.couleur, display: 'inline-block' }} />
-              <button onClick={() => changerCalendrierActif(c.id)}
-                style={{ padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
-                  border: calendrierActif === c.id ? '2px solid #333' : '1px solid #ccc',
-                  background: calendrierActif === c.id ? '#eef' : '#fff',
-                  fontWeight: calendrierActif === c.id ? 'bold' : 'normal' }}>
-                {c.nom} {calendrierActif === c.id ? '(en édition)' : ''}
-              </button>
-              <button onClick={() => supprimerCalendrier(c.id)}
-                style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#bbb' }}>✕</button>
+    // Sur mobile : par personne, une ligne de 7 mini-cases (pas de tableau qui déborde)
+    if (estMobile) {
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {personnesAffichees.map(p => (
+            <div key={p.id}>
+              <div style={{ fontWeight: 'bold', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={pastille(p.couleur, 10)} /> {p.nom}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2 }}>
+                {joursSemaine.map((x, i) => {
+                  const cle = cleJour(x.getFullYear(), x.getMonth(), x.getDate())
+                  const items = application.filter(a => a.jour === cle && a.personne_id === p.id && calendriersVisibles.includes(a.calendrier_id))
+                    .map(a => presets.find(pr => pr.id === a.preset_id)).filter(Boolean)
+                    .sort((a, b) => (ORDRE_CATEGORIE[a.type] ?? 9) - (ORDRE_CATEGORIE[b.type] ?? 9))
+                  return (
+                    <div key={i} onClick={() => clicJour(cle, p.id)}
+                      style={{ minHeight: 56, border: '1px solid #e5e7eb', borderRadius: 6, padding: 2, cursor: (presetActif || modeGomme) ? 'pointer' : 'default', background: '#fff' }}>
+                      <div style={{ fontSize: 9, color: '#9ca3af', textAlign: 'center' }}>{JOURS[i][0]}{x.getDate()}</div>
+                      {items.map((it, idx) => <div key={idx} style={{ background: it.couleur, borderRadius: 3, fontSize: 8, padding: '1px 2px', marginTop: 1, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{it.nom}</div>)}
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           ))}
         </div>
-        <p style={{ fontSize: 12, color: '#888', marginTop: 8, marginBottom: 0 }}>
-          ☑️ = affiché &nbsp;|&nbsp; bouton = calendrier en édition (celui qu'on peint)
-        </p>
+      )
+    }
+    return (
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 700 }}>
+          <thead>
+            <tr>
+              <th style={{ textAlign: 'left', padding: 8, borderBottom: '2px solid #d1d5db' }}>Personne</th>
+              {joursSemaine.map((x, i) => <th key={i} style={{ padding: 8, borderBottom: '2px solid #d1d5db', fontSize: 13 }}>{JOURS[i]} {x.getDate()}/{x.getMonth() + 1}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {personnesAffichees.map(p => (
+              <tr key={p.id} style={{ borderBottom: '1px solid #eee' }}>
+                <td style={{ padding: 8, fontWeight: 'bold', whiteSpace: 'nowrap' }}><span style={pastille(p.couleur, 10)} /> {p.nom}</td>
+                {joursSemaine.map((x, i) => {
+                  const cle = cleJour(x.getFullYear(), x.getMonth(), x.getDate())
+                  const items = application.filter(a => a.jour === cle && a.personne_id === p.id && calendriersVisibles.includes(a.calendrier_id))
+                    .map(a => presets.find(pr => pr.id === a.preset_id)).filter(Boolean)
+                    .sort((a, b) => (ORDRE_CATEGORIE[a.type] ?? 9) - (ORDRE_CATEGORIE[b.type] ?? 9))
+                  return (
+                    <td key={i} onClick={() => clicJour(cle, p.id)} style={{ padding: 4, verticalAlign: 'top', minWidth: 100, cursor: (presetActif || modeGomme) ? 'pointer' : 'default' }}>
+                      {items.map((it, idx) => <div key={idx} style={{ background: it.couleur, borderRadius: 4, padding: '2px 4px', fontSize: 11, marginBottom: 2 }}>{it.nom}</div>)}
+                    </td>
+                  )
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
+    )
+  }
 
-      {/* ÉDITION CALENDRIER ACTIF */}
-      {calActifObj && (
-        <div style={{ marginBottom: 20 }}>
-          <p style={{ fontWeight: 'bold', marginBottom: 8 }}>
-            Tu édites : <span style={{ color: calActifObj.couleur }}>{calActifObj.nom}</span>
-          </p>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-            <button onClick={() => setFormPresetOuvert(!formPresetOuvert)} style={{ padding: '6px 12px' }}>
-              {formPresetOuvert ? '✕ Fermer' : '＋ Nouveau preset'}
-            </button>
-            <button onClick={() => setFormEvOuvert(!formEvOuvert)} style={{ padding: '6px 12px' }}>
-              {formEvOuvert ? '✕ Fermer' : '🎉 Nouvel événement récurrent'}
-            </button>
+  // === BLOCS D'INTERFACE (réutilisés sur PC et mobile) ===
+
+  const blocCalendriers = (
+    <div style={panel}>
+      <div style={headerRow}>
+        <strong>Mes calendriers</strong>
+        <button onClick={() => setFormCalOuvert(!formCalOuvert)} style={{ padding: '4px 10px' }}>{formCalOuvert ? '✕' : '＋ Calendrier'}</button>
+      </div>
+      {formCalOuvert && (
+        <div style={{ marginBottom: 12, padding: 12, background: '#fff', borderRadius: 8, border: '1px solid #eee' }}>
+          <input value={nouveauCalNom} onChange={e => setNouveauCalNom(e.target.value)} placeholder="Nom (ex : Perso)" style={{ padding: 8, width: '100%', maxWidth: 260, marginBottom: 8, boxSizing: 'border-box' }} />
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 8 }}>
+            {PALETTE.map(c => <div key={c} onClick={() => setNouveauCalCouleur(c)} style={{ width: 26, height: 26, borderRadius: 5, background: c, cursor: 'pointer', border: nouveauCalCouleur === c ? '3px solid #000' : '1px solid #ccc' }} />)}
           </div>
-
-          {formPresetOuvert && (
-            <div style={{ border: '1px solid #ddd', borderRadius: 8, padding: 16, marginBottom: 14, background: '#fff' }}>
-              <input value={nouveauNom} onChange={e => setNouveauNom(e.target.value)}
-                placeholder="Ex : 10:00 - 18:30" style={{ padding: 8, width: '100%', maxWidth: 260, marginBottom: 10 }} />
-              <div style={{ marginBottom: 10 }}>
-                <select value={nouvelleCategorie} onChange={e => setNouvelleCategorie(e.target.value)} style={{ padding: 8 }}>
-                  {CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
-                </select>
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
-                {PALETTE.map(c => <div key={c} onClick={() => setNouvelleCouleur(c)}
-                  style={{ width: 28, height: 28, borderRadius: 6, background: c, cursor: 'pointer',
-                    border: nouvelleCouleur === c ? '3px solid #000' : '1px solid #ccc' }} />)}
-              </div>
-              <button onClick={creerPreset} style={{ padding: '8px 16px', fontWeight: 'bold' }}>Créer</button>
-            </div>
-          )}
-
-          {formEvOuvert && (
-            <div style={{ border: '1px solid #ddd', borderRadius: 8, padding: 16, marginBottom: 14, background: '#fff' }}>
-              <input value={evNom} onChange={e => setEvNom(e.target.value)}
-                placeholder="Ex : Anniversaire de Léa" style={{ padding: 8, width: '100%', maxWidth: 260, marginBottom: 10 }} />
-              <div style={{ marginBottom: 10 }}>
-                <label style={{ marginRight: 8 }}>Date :</label>
-                <input type="date" value={evDate} onChange={e => setEvDate(e.target.value)} style={{ padding: 8 }} />
-              </div>
-              <div style={{ marginBottom: 10 }}>
-                <label style={{ marginRight: 8 }}>Récurrence :</label>
-                <select value={evRecurrence} onChange={e => setEvRecurrence(e.target.value)} style={{ padding: 8 }}>
-                  {RECURRENCES.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
-                </select>
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
-                {PALETTE.map(c => <div key={c} onClick={() => setEvCouleur(c)}
-                  style={{ width: 28, height: 28, borderRadius: 6, background: c, cursor: 'pointer',
-                    border: evCouleur === c ? '3px solid #000' : '1px solid #ccc' }} />)}
-              </div>
-              <button onClick={creerEvenement} style={{ padding: '8px 16px', fontWeight: 'bold' }}>Créer l'événement</button>
-            </div>
-          )}
-
-          {/* Liste des événements du calendrier actif */}
-          {evenements.filter(e => e.calendrier_id === calendrierActif).length > 0 && (
-            <div style={{ marginBottom: 12, fontSize: 13 }}>
-              <strong>Événements récurrents :</strong>
-              {evenements.filter(e => e.calendrier_id === calendrierActif).map(ev => (
-                <span key={ev.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, margin: '4px 8px 0 0',
-                  padding: '2px 8px', borderRadius: 12, background: ev.couleur, color: '#000' }}>
-                  {ev.nom}
-                  <button onClick={() => supprimerEvenement(ev.id)}
-                    style={{ border: 'none', background: 'transparent', cursor: 'pointer' }}>✕</button>
-                </span>
-              ))}
-            </div>
-          )}
-
-          {/* Pinceau */}
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            <label style={{ fontWeight: 'bold' }}>Pinceau :</label>
-            <select value={presetActif || ''} onChange={e => setPresetActif(e.target.value || null)}
-              style={{ padding: 10, fontSize: 16, minWidth: 220 }}>
-              <option value="">— Aucun (ne pas peindre) —</option>
-              {CATEGORIES.map(cat => {
-                const dedans = presetsCalendrierActif.filter(p => p.type === cat.id)
-                if (dedans.length === 0) return null
-                return (
-                  <optgroup key={cat.id} label={cat.label}>
-                    {dedans.map(p => <option key={p.id} value={p.id}>{p.nom}</option>)}
-                  </optgroup>
-                )
-              })}
-            </select>
-            {presetActif && (
-              <button onClick={() => supprimerPreset(presetActif)} style={{ padding: '6px 10px', color: '#c00' }}>
-                Supprimer ce preset
-              </button>
-            )}
-          </div>
-          {presetActif && <p style={{ color: '#16a34a', marginTop: 8 }}>✏️ Clique sur un jour (reclique pour enlever).</p>}
+          <button onClick={creerCalendrier} style={{ padding: '6px 14px', fontWeight: 'bold' }}>Créer</button>
         </div>
       )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {calendriers.map(c => (
+          <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input type="checkbox" checked={calendriersVisibles.includes(c.id)} onChange={() => toggleVisible(c.id)} />
+            <span style={pastille(c.couleur)} />
+            <button onClick={() => changerCalendrierActif(c.id)} style={btnToggle(calendrierActif === c.id)}>{c.nom}{calendrierActif === c.id ? ' ✓' : ''}</button>
+            <button onClick={() => ouvrirEdition('calendrier', c)} style={{ border: 'none', background: 'transparent', cursor: 'pointer' }}>✏️</button>
+            <button onClick={() => supprimerCalendrier(c.id)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#bbb' }}>✕</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
 
-      {/* SÉLECTEUR DE VUE + NAVIGATION */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
-        <div style={{ display: 'flex', gap: 6 }}>
-          {[['semaine','Semaine'],['mois','Mois'],['annee','Année']].map(([id, label]) => (
-            <button key={id} onClick={() => setVue(id)}
-              style={{ padding: '6px 14px', borderRadius: 6,
-                border: vue === id ? '2px solid #333' : '1px solid #ccc',
-                background: vue === id ? '#333' : '#fff', color: vue === id ? '#fff' : '#000',
-                fontWeight: vue === id ? 'bold' : 'normal' }}>{label}</button>
+  const blocPersonnes = (
+    <div style={panel}>
+      <div style={headerRow}>
+        <strong>Mes personnes</strong>
+        <button onClick={() => setFormPersonneOuvert(!formPersonneOuvert)} style={{ padding: '4px 10px' }}>{formPersonneOuvert ? '✕' : '＋ Personne'}</button>
+      </div>
+      {formPersonneOuvert && (
+        <div style={{ marginBottom: 12, padding: 12, background: '#fff', borderRadius: 8, border: '1px solid #eee' }}>
+          <input value={nouvellePersonneNom} onChange={e => setNouvellePersonneNom(e.target.value)} placeholder="Nom (ex : Marie)" style={{ padding: 8, width: '100%', maxWidth: 260, marginBottom: 8, boxSizing: 'border-box' }} />
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 8 }}>
+            {PALETTE.map(c => <div key={c} onClick={() => setNouvellePersonneCouleur(c)} style={{ width: 26, height: 26, borderRadius: 5, background: c, cursor: 'pointer', border: nouvellePersonneCouleur === c ? '3px solid #000' : '1px solid #ccc' }} />)}
+          </div>
+          <button onClick={creerPersonne} style={{ padding: '6px 14px', fontWeight: 'bold' }}>Créer</button>
+        </div>
+      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {personnes.map(p => (
+          <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input type="checkbox" checked={personnesVisibles.includes(p.id)} onChange={() => togglePersonneVisible(p.id)} title="Afficher en vue Équipe" />
+            <span style={pastille(p.couleur)} />
+            <button onClick={() => setPersonneActive(p.id)} style={btnToggle(personneActive === p.id)}>{p.nom}{personneActive === p.id ? ' ✓' : ''}</button>
+            <button onClick={() => ouvrirEdition('personne', p)} style={{ border: 'none', background: 'transparent', cursor: 'pointer' }}>✏️</button>
+            <button onClick={() => supprimerPersonne(p.id)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#bbb' }}>✕</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+
+  const blocPinceau = calActifObj && personneActiveObj && (
+    <div style={{ marginBottom: 20 }}>
+      <p style={{ fontWeight: 'bold', marginBottom: 8 }}>
+        Tu modifies : <span style={{ color: calActifObj.couleur }}>{calActifObj.nom}</span> pour <span style={{ color: personneActiveObj.couleur }}>{personneActiveObj.nom}</span>
+      </p>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+        <button onClick={() => setFormPresetOuvert(!formPresetOuvert)} style={{ padding: '6px 12px' }}>{formPresetOuvert ? '✕ Fermer' : '＋ Nouveau preset'}</button>
+        <button onClick={() => setFormEvOuvert(!formEvOuvert)} style={{ padding: '6px 12px' }}>{formEvOuvert ? '✕ Fermer' : '🎉 Événement récurrent'}</button>
+      </div>
+      {formPresetOuvert && (
+        <div style={{ border: '1px solid #ddd', borderRadius: 8, padding: 16, marginBottom: 14, background: '#fff' }}>
+          <input value={nouveauNom} onChange={e => setNouveauNom(e.target.value)} placeholder="Ex : 10:00 - 18:30" style={{ padding: 8, width: '100%', maxWidth: 260, marginBottom: 10, boxSizing: 'border-box' }} />
+          <div style={{ marginBottom: 10 }}>
+            <select value={nouvelleCategorie} onChange={e => setNouvelleCategorie(e.target.value)} style={{ padding: 8 }}>{CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}</select>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+            {PALETTE.map(c => <div key={c} onClick={() => setNouvelleCouleur(c)} style={{ width: 30, height: 30, borderRadius: 6, background: c, cursor: 'pointer', border: nouvelleCouleur === c ? '3px solid #000' : '1px solid #ccc' }} />)}
+          </div>
+          <button onClick={creerPreset} style={{ padding: '8px 16px', fontWeight: 'bold' }}>Créer</button>
+        </div>
+      )}
+      {formEvOuvert && (
+        <div style={{ border: '1px solid #ddd', borderRadius: 8, padding: 16, marginBottom: 14, background: '#fff' }}>
+          <input value={evNom} onChange={e => setEvNom(e.target.value)} placeholder="Ex : Anniversaire de Léa" style={{ padding: 8, width: '100%', maxWidth: 260, marginBottom: 10, boxSizing: 'border-box' }} />
+          <div style={{ marginBottom: 10 }}><label style={{ marginRight: 8 }}>Date :</label><input type="date" value={evDate} onChange={e => setEvDate(e.target.value)} style={{ padding: 8 }} /></div>
+          <div style={{ marginBottom: 10 }}><label style={{ marginRight: 8 }}>Récurrence :</label><select value={evRecurrence} onChange={e => setEvRecurrence(e.target.value)} style={{ padding: 8 }}>{RECURRENCES.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}</select></div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+            {PALETTE.map(c => <div key={c} onClick={() => setEvCouleur(c)} style={{ width: 30, height: 30, borderRadius: 6, background: c, cursor: 'pointer', border: evCouleur === c ? '3px solid #000' : '1px solid #ccc' }} />)}
+          </div>
+          <button onClick={creerEvenement} style={{ padding: '8px 16px', fontWeight: 'bold' }}>Créer l'événement</button>
+        </div>
+      )}
+      {evenements.filter(e => e.calendrier_id === calendrierActif).length > 0 && (
+        <div style={{ marginBottom: 12, fontSize: 13 }}>
+          <strong>Événements récurrents :</strong>
+          {evenements.filter(e => e.calendrier_id === calendrierActif).map(ev => (
+            <span key={ev.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, margin: '4px 8px 0 0', padding: '2px 8px', borderRadius: 12, background: ev.couleur, color: '#1f2937' }}>
+              {ev.nom}
+              <button onClick={() => ouvrirEdition('evenement', ev)} style={{ border: 'none', background: 'transparent', cursor: 'pointer' }}>✏️</button>
+              <button onClick={() => supprimerEvenement(ev.id)} style={{ border: 'none', background: 'transparent', cursor: 'pointer' }}>✕</button>
+            </span>
           ))}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          {vue === 'mois' && <>
-            <button onClick={moisPrecedent}>←</button>
-            <h2 style={{ margin: 0, fontSize: 20 }}>{MOIS[mois]} {annee}</h2>
-            <button onClick={moisSuivant}>→</button>
-          </>}
-          {vue === 'semaine' && <>
-            <button onClick={semainePrecedente}>←</button>
-            <h2 style={{ margin: 0, fontSize: 18 }}>Semaine du {ancrageSemaine.toLocaleDateString('fr-FR')}</h2>
-            <button onClick={semaineSuivante}>→</button>
-          </>}
-          {vue === 'annee' && <>
-            <button onClick={() => setAnnee(annee - 1)}>←</button>
-            <h2 style={{ margin: 0, fontSize: 20 }}>{annee}</h2>
-            <button onClick={() => setAnnee(annee + 1)}>→</button>
-          </>}
-        </div>
+      )}
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <label style={{ fontWeight: 'bold' }}>Pinceau :</label>
+        <select value={presetActif || ''} onChange={e => { setPresetActif(e.target.value || null); setModeGomme(false) }} style={{ padding: 10, fontSize: 16, minWidth: 200, flex: estMobile ? 1 : 'none' }}>
+          <option value="">— Aucun —</option>
+          {CATEGORIES.map(cat => {
+            const dedans = presetsCalendrierActif.filter(p => p.type === cat.id)
+            if (dedans.length === 0) return null
+            return <optgroup key={cat.id} label={cat.label}>{dedans.map(p => <option key={p.id} value={p.id}>{p.nom}</option>)}</optgroup>
+          })}
+        </select>
+        <button onClick={() => { setModeGomme(!modeGomme); setPresetActif(null) }} style={{ padding: '8px 14px', borderRadius: 6, border: modeGomme ? '2px solid #c00' : '1px solid #ccc', background: modeGomme ? '#fee2e2' : '#fff', color: modeGomme ? '#c00' : '#1f2937', fontWeight: modeGomme ? 'bold' : 'normal' }}>🧹 Gomme</button>
+        {presetActif && (<>
+          <button onClick={() => ouvrirEdition('preset', presets.find(p => p.id === presetActif))} style={{ padding: '6px 10px' }}>✏️</button>
+          <button onClick={() => supprimerPreset(presetActif)} style={{ padding: '6px 10px', color: '#c00' }}>🗑️</button>
+        </>)}
       </div>
+      {(presetActif || modeGomme) && (
+        <p style={{ color: modeGomme ? '#c00' : '#16a34a', marginTop: 8 }}>
+          {modeGomme ? '🧹 Clique sur un jour pour effacer.' : '✏️ Clique sur un jour (reclique pour enlever).'}
+        </p>
+      )}
+    </div>
+  )
 
-      {/* VUE ACTIVE */}
+  const selecteurVue = (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {[['semaine','Semaine'],['mois','Mois'],['annee','Année'],['equipe','Équipe']].map(([id, label]) => (
+          <button key={id} onClick={() => setVue(id)} style={{ padding: '6px 14px', borderRadius: 6, border: vue === id ? '2px solid #333' : '1px solid #ccc', background: vue === id ? '#333' : '#fff', color: vue === id ? '#fff' : '#1f2937', fontWeight: vue === id ? 'bold' : 'normal' }}>{label}</button>
+        ))}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        {vue === 'mois' && <><button onClick={moisPrecedent}>←</button><h2 style={{ margin: 0, fontSize: estMobile ? 16 : 20 }}>{MOIS[mois]} {annee}</h2><button onClick={moisSuivant}>→</button></>}
+        {(vue === 'semaine' || vue === 'equipe') && <><button onClick={semainePrecedente}>←</button><h2 style={{ margin: 0, fontSize: estMobile ? 14 : 18 }}>Sem. {ancrageSemaine.toLocaleDateString('fr-FR')}</h2><button onClick={semaineSuivante}>→</button></>}
+        {vue === 'annee' && <><button onClick={() => setAnnee(annee - 1)}>←</button><h2 style={{ margin: 0, fontSize: estMobile ? 16 : 20 }}>{annee}</h2><button onClick={() => setAnnee(annee + 1)}>→</button></>}
+      </div>
+    </div>
+  )
+
+  const zoneCalendrier = (
+    <>
+      {selecteurVue}
       {vue === 'mois' && rendreMois()}
       {vue === 'semaine' && rendreSemaine()}
       {vue === 'annee' && rendreAnnee()}
-
+      {vue === 'equipe' && rendreEquipe()}
       {loading && <p>Chargement…</p>}
+    </>
+  )
+
+  return (
+    <div style={{ maxWidth: 1100, margin: estMobile ? '0 auto' : '30px auto', padding: estMobile ? '12px 10px 80px' : '0 16px' }}>
+      {sauvegarde !== 'idle' && (
+        <div style={{ position: 'fixed', top: 12, right: 12, padding: '6px 14px', borderRadius: 20, background: sauvegarde === 'saving' ? '#fef3c7' : '#dcfce7', color: sauvegarde === 'saving' ? '#92400e' : '#166534', fontSize: 13, fontWeight: 'bold', zIndex: 300, boxShadow: '0 2px 6px rgba(0,0,0,0.15)' }}>
+          {sauvegarde === 'saving' ? '💾 Enregistrement...' : '✓ Enregistré'}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <button onClick={onRetour}>← Hub</button>
+        <h1 style={{ fontSize: estMobile ? 22 : 28, margin: 0 }}>📅 Planning</h1>
+        <span style={{ width: 50 }} />
+      </div>
+
+      {/* PC : tout affiché. MOBILE : un onglet à la fois */}
+      {!estMobile ? (
+        <>
+          {blocCalendriers}
+          {blocPersonnes}
+          {blocPinceau}
+          {zoneCalendrier}
+        </>
+      ) : (
+        <>
+          {ongletMobile === 'vue' && zoneCalendrier}
+          {ongletMobile === 'peindre' && (blocPinceau || <p>Crée d'abord un calendrier et une personne dans l'onglet Gérer.</p>)}
+          {ongletMobile === 'gerer' && <>{blocCalendriers}{blocPersonnes}</>}
+        </>
+      )}
+
+      {/* Barre d'onglets mobile en bas */}
+      {estMobile && (
+        <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, display: 'flex', background: '#fff', borderTop: '1px solid #e5e7eb', boxShadow: '0 -2px 8px rgba(0,0,0,0.08)', zIndex: 200 }}>
+          {[['vue','📅','Vue'],['peindre','🖌️','Peindre'],['gerer','⚙️','Gérer']].map(([id, icone, label]) => (
+            <button key={id} onClick={() => setOngletMobile(id)}
+              style={{ flex: 1, border: 'none', borderRadius: 0, background: ongletMobile === id ? '#eef2ff' : '#fff', padding: '10px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, color: ongletMobile === id ? '#3b82f6' : '#6b7280', fontWeight: ongletMobile === id ? 'bold' : 'normal' }}>
+              <span style={{ fontSize: 20 }}>{icone}</span>
+              <span style={{ fontSize: 11 }}>{label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {edition && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 400, padding: 16 }}>
+          <div style={{ background: '#fff', borderRadius: 10, padding: 20, width: '100%', maxWidth: 320 }}>
+            <h3 style={{ marginTop: 0 }}>Modifier {edition.type === 'preset' ? 'le preset' : edition.type === 'calendrier' ? 'le calendrier' : edition.type === 'personne' ? 'la personne' : "l'événement"}</h3>
+            <input value={edition.nom} onChange={e => setEdition({ ...edition, nom: e.target.value })} style={{ padding: 8, width: '100%', marginBottom: 10, boxSizing: 'border-box' }} />
+            {edition.type === 'preset' && (
+              <select value={edition.categorie} onChange={e => setEdition({ ...edition, categorie: e.target.value })} style={{ padding: 8, marginBottom: 10, width: '100%' }}>{CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}</select>
+            )}
+            {edition.type === 'evenement' && (<>
+              <input type="date" value={edition.date} onChange={e => setEdition({ ...edition, date: e.target.value })} style={{ padding: 8, marginBottom: 10, width: '100%', boxSizing: 'border-box' }} />
+              <select value={edition.recurrence} onChange={e => setEdition({ ...edition, recurrence: e.target.value })} style={{ padding: 8, marginBottom: 10, width: '100%' }}>{RECURRENCES.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}</select>
+            </>)}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 14 }}>
+              {PALETTE.map(c => <div key={c} onClick={() => setEdition({ ...edition, couleur: c })} style={{ width: 26, height: 26, borderRadius: 5, background: c, cursor: 'pointer', border: edition.couleur === c ? '3px solid #000' : '1px solid #ccc' }} />)}
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={() => setEdition(null)} style={{ padding: '6px 14px' }}>Annuler</button>
+              <button onClick={enregistrerEdition} style={{ padding: '6px 14px', fontWeight: 'bold' }}>Enregistrer</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
