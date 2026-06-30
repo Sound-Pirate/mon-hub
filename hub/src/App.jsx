@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from './supabaseClient'
 import { useModules } from './useModules'
 import { Admin } from './Admin'
+import { Planning } from './Planning'
 import './App.css'
 
 function App() {
@@ -46,7 +47,9 @@ function App() {
       </div>
     )
   }
-
+  if (vue === 'planning') {
+    return <Planning onRetour={() => setVue('hub')} />
+  }
   if (vue === 'admin') {
     return <Admin modules={modules} basculer={basculer} onRetour={() => setVue('hub')} />
   }
@@ -75,7 +78,7 @@ function App() {
               style={{ width: 140, height: 140, border: '1px solid #ddd', borderRadius: 12,
                 display: 'flex', flexDirection: 'column', alignItems: 'center',
                 justifyContent: 'center', cursor: 'pointer' }}
-              onClick={() => alert('Bientôt : ' + m.nom)}>
+              onClick={() => m.id === 'planning' ? setVue('planning') : alert('Bientôt : ' + m.nom)}>
               <div style={{ fontSize: 48 }}>{m.icone}</div>
               <div style={{ marginTop: 8 }}>{m.nom}</div>
             </div>
