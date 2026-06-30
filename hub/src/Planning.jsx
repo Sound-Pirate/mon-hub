@@ -599,7 +599,7 @@ export function Planning({ onRetour }) {
               <label style={{ display: 'block', marginBottom: 4, fontWeight: 'bold' }}>Couleur de fond (si pas d'image) :</label>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>{PALETTE.map(c => <div key={c} onClick={() => setNouvelleCouleur(c)} style={{ width: 30, height: 30, borderRadius: 6, background: c, cursor: 'pointer', border: nouvelleCouleur === c ? '3px solid #000' : '1px solid #ccc' }} />)}</div>
               <label style={{ display: 'block', marginBottom: 4, fontWeight: 'bold' }}>Taille de l'icône : {nouvelleTailleIcone}px</label>
-              <input type="range" min="10" max="48" value={nouvelleTailleIcone} onChange={e => setNouvelleTailleIcone(Number(e.target.value))} style={{ width: '100%', marginBottom: 10 }} />
+              <input type="range" min="10" max="70" value={nouvelleTailleIcone} onChange={e => setNouvelleTailleIcone(Number(e.target.value))} style={{ width: '100%', marginBottom: 10 }} />
             </>
           )}
           <button onClick={creerPreset} disabled={uploadEnCours} style={{ padding: '8px 16px', fontWeight: 'bold' }}>{uploadEnCours ? 'Envoi...' : 'Créer'}</button>
