@@ -93,6 +93,7 @@ export function Planning({ onRetour }) {
   const [nouvelleCouleur, setNouvelleCouleur] = useState(PALETTE[0])
   const [nouveauStatut, setNouveauStatut] = useState('ouverture')
   const [nouveauFichier, setNouveauFichier] = useState(null)
+  const [nouvelleTailleIcone, setNouvelleTailleIcone] = useState(28)
   const [uploadEnCours, setUploadEnCours] = useState(false)
 
   const [formCalOuvert, setFormCalOuvert] = useState(false)
@@ -218,7 +219,7 @@ export function Planning({ onRetour }) {
     }
     await supabase.from('presets').insert({
       nom: nouveauNom.trim(), couleur, type: nouvelleCategorie, calendrier_id: calendrierActif,
-      statut_horaire: statut, image_url: imageUrl,
+      statut_horaire: statut, image_url: imageUrl, taille_icone: nouvelleTailleIcone,
     })
     setNouveauNom(''); setNouveauFichier(null); setFormPresetOuvert(false); setUploadEnCours(false)
     await chargerPresets()
@@ -250,7 +251,7 @@ export function Planning({ onRetour }) {
   }
 
   function ouvrirEdition(type, obj) {
-    if (type === 'preset') setEdition({ type, id: obj.id, nom: obj.nom, couleur: obj.couleur, categorie: obj.type, statut: obj.statut_horaire || 'ouverture', image_url: obj.image_url, fichier: null })
+    if (type === 'preset') setEdition({ type, id: obj.id, nom: obj.nom, couleur: obj.couleur, categorie: obj.type, statut: obj.statut_horaire || 'ouverture', image_url: obj.image_url, fichier: null, taille_icone: obj.taille_icone || 28 })
     else if (type === 'evenement') setEdition({ type, id: obj.id, nom: obj.nom, couleur: obj.couleur, date: obj.date_ref, recurrence: obj.recurrence })
     else setEdition({ type, id: obj.id, nom: obj.nom, couleur: obj.couleur })
   }
@@ -268,6 +269,7 @@ export function Planning({ onRetour }) {
         maj.statut_horaire = null
         if (edition.fichier) maj.image_url = await uploaderImage(edition.fichier)
         else maj.image_url = edition.image_url
+        maj.taille_icone = edition.taille_icone
       }
       await supabase.from('presets').update(maj).eq('id', edition.id)
       await chargerPresets()
@@ -340,10 +342,12 @@ export function Planning({ onRetour }) {
           {montrerNumero && <span style={{ fontSize: 11, color: '#9ca3af' }}>{j}</span>}
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2, marginTop: 3, justifyContent: 'center' }}>
-          {r.icones.map((p, i) => p.image_url
-            ? <img key={i} src={p.image_url} alt={p.nom} title={p.nom} style={{ width: 18, height: 18, objectFit: 'contain' }} />
-            : <span key={i} title={p.nom} style={{ ...pastille(p.couleur, 14) }} />
-          )}
+          {r.icones.map((p, i) => {
+            const taille = `clamp(14px, 6vw, ${p.taille_icone || 28}px)`
+            return p.image_url
+              ? <img key={i} src={p.image_url} alt={p.nom} title={p.nom} style={{ width: taille, height: taille, objectFit: 'contain' }} />
+              : <span key={i} title={p.nom} style={{ width: taille, height: taille, borderRadius: '50%', background: p.couleur, display: 'inline-block', flexShrink: 0 }} />
+          })}
         </div>
         {aDesEvenements && <div style={{ position: 'absolute', bottom: 2, right: 3, fontSize: 10 }}>🎉</div>}
       </div>
@@ -594,6 +598,8 @@ export function Planning({ onRetour }) {
               </div>
               <label style={{ display: 'block', marginBottom: 4, fontWeight: 'bold' }}>Couleur de fond (si pas d'image) :</label>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>{PALETTE.map(c => <div key={c} onClick={() => setNouvelleCouleur(c)} style={{ width: 30, height: 30, borderRadius: 6, background: c, cursor: 'pointer', border: nouvelleCouleur === c ? '3px solid #000' : '1px solid #ccc' }} />)}</div>
+              <label style={{ display: 'block', marginBottom: 4, fontWeight: 'bold' }}>Taille de l'icône : {nouvelleTailleIcone}px</label>
+              <input type="range" min="10" max="48" value={nouvelleTailleIcone} onChange={e => setNouvelleTailleIcone(Number(e.target.value))} style={{ width: '100%', marginBottom: 10 }} />
             </>
           )}
           <button onClick={creerPreset} disabled={uploadEnCours} style={{ padding: '8px 16px', fontWeight: 'bold' }}>{uploadEnCours ? 'Envoi...' : 'Créer'}</button>
@@ -720,7 +726,7 @@ export function Planning({ onRetour }) {
                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 8, borderRadius: 8, marginBottom: 6, background: p.type === 'horaire' ? couleurStatut(p.statut_horaire) + '22' : '#f3f4f6' }}>
                   {p.type === 'horaire'
                     ? <span style={pastille(couleurStatut(p.statut_horaire), 16)} />
-                    : (p.image_url ? <img src={p.image_url} alt="" style={{ width: 24, height: 24, objectFit: 'contain' }} /> : <span style={pastille(p.couleur, 16)} />)}
+                    : (p.image_url ? <img src={p.image_url} alt="" style={{ width: (p.taille_icone || 28) + 6, height: (p.taille_icone || 28) + 6, objectFit: 'contain' }} /> : <span style={pastille(p.couleur, 16)} />)}
                   <div>
                     <div style={{ fontWeight: 'bold' }}>{p.nom}</div>
                     <div style={{ fontSize: 12, color: '#6b7280' }}>{CATEGORIES.find(c => c.id === p.type)?.label}{p.type === 'horaire' ? ' — ' + (STATUTS.find(s => s.id === p.statut_horaire)?.label || '') : ''}</div>
@@ -753,6 +759,8 @@ export function Planning({ onRetour }) {
                 {edition.image_url && <div style={{ marginBottom: 8 }}><img src={edition.image_url} alt="" style={{ width: 40, height: 40, objectFit: 'contain' }} /> <span style={{ fontSize: 12, color: '#6b7280' }}>image actuelle</span></div>}
                 <div style={{ marginBottom: 10 }}><label style={{ fontSize: 13 }}>Changer l'image : </label><input type="file" accept="image/*" onChange={e => setEdition({ ...edition, fichier: e.target.files[0] })} /></div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 10 }}>{PALETTE.map(c => <div key={c} onClick={() => setEdition({ ...edition, couleur: c })} style={{ width: 24, height: 24, borderRadius: 5, background: c, cursor: 'pointer', border: edition.couleur === c ? '3px solid #000' : '1px solid #ccc' }} />)}</div>
+                <label style={{ fontSize: 13, fontWeight: 'bold' }}>Taille de l'icône : {edition.taille_icone}px</label>
+                <input type="range" min="10" max="48" value={edition.taille_icone} onChange={e => setEdition({ ...edition, taille_icone: Number(e.target.value) })} style={{ width: '100%', marginBottom: 10 }} />
               </>)}
             </>)}
             {(edition.type === 'calendrier' || edition.type === 'personne') && (
