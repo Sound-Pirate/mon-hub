@@ -760,7 +760,7 @@ export function Planning({ onRetour }) {
                 <div style={{ marginBottom: 10 }}><label style={{ fontSize: 13 }}>Changer l'image : </label><input type="file" accept="image/*" onChange={e => setEdition({ ...edition, fichier: e.target.files[0] })} /></div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 10 }}>{PALETTE.map(c => <div key={c} onClick={() => setEdition({ ...edition, couleur: c })} style={{ width: 24, height: 24, borderRadius: 5, background: c, cursor: 'pointer', border: edition.couleur === c ? '3px solid #000' : '1px solid #ccc' }} />)}</div>
                 <label style={{ fontSize: 13, fontWeight: 'bold' }}>Taille de l'icône : {edition.taille_icone}px</label>
-                <input type="range" min="10" max="48" value={edition.taille_icone} onChange={e => setEdition({ ...edition, taille_icone: Number(e.target.value) })} style={{ width: '100%', marginBottom: 10 }} />
+                <input type="range" min="10" max="70" value={edition.taille_icone} onChange={e => setEdition({ ...edition, taille_icone: Number(e.target.value) })} style={{ width: '100%', marginBottom: 10 }} />
               </>)}
             </>)}
             {(edition.type === 'calendrier' || edition.type === 'personne') && (
