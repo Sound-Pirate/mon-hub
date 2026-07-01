@@ -763,7 +763,7 @@ export function Planning({ onRetour }) {
         onImportTermine={() => { chargerPresets(); chargerJours() }}
       />
     ) : (
-    <div style={{ maxWidth: 1100, margin: estMobile ? '0 auto' : '30px auto', padding: estMobile ? '12px 10px 80px' : '0 16px' }}>
+    <div style={{ maxWidth: 1100, margin: estMobile ? '0 auto' : '30px auto', padding: estMobile ? `12px 10px ${ongletMobile === 'vue' ? '120px' : '80px'}` : '0 16px' }}>
       {sauvegarde !== 'idle' && (
         <div style={{ position: 'fixed', top: 12, right: 12, padding: '6px 14px', borderRadius: 20, background: sauvegarde === 'saving' ? '#fef3c7' : '#dcfce7', color: sauvegarde === 'saving' ? '#92400e' : '#166534', fontSize: 13, fontWeight: 'bold', zIndex: 300, boxShadow: '0 2px 6px rgba(0,0,0,0.15)' }}>{sauvegarde === 'saving' ? '💾 Enregistrement...' : '✓ Enregistré'}</div>
       )}
@@ -789,9 +789,45 @@ export function Planning({ onRetour }) {
 
       {estMobile && (
         <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, display: 'flex', background: '#fff', borderTop: '1px solid #e5e7eb', boxShadow: '0 -2px 8px rgba(0,0,0,0.08)', zIndex: 200 }}>
-          {[['vue','📅','Vue'],['peindre','🖌️','Peindre'],['gerer','⚙️','Gérer']].map(([id, icone, label]) => (
+          {[['vue','📅','Vue'],['peindre','🛠️','Presets'],['gerer','⚙️','Gérer']].map(([id, icone, label]) => (
             <button key={id} onClick={() => setOngletMobile(id)} style={{ flex: 1, border: 'none', borderRadius: 0, background: ongletMobile === id ? '#eef2ff' : '#fff', padding: '10px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, color: ongletMobile === id ? '#3b82f6' : '#6b7280', fontWeight: ongletMobile === id ? 'bold' : 'normal' }}>
-              <span style={{ fontSize: 20 }}>{icone}</span><span style={{ fontSize: 11 }}>{label}</span>
+              <span style={{ fontSize: 20 }}>{icone}</span><span styl{estMobile && (
+        <>
+          {/* Barre d'outils pinceau — visible uniquement sur l'onglet Vue */}
+          {ongletMobile === 'vue' && (
+            <div style={{ position: 'fixed', bottom: 56, left: 0, right: 0, display: 'flex', background: 'rgba(255,255,255,0.97)', borderTop: '1px solid #e5e7eb', padding: '8px 12px', gap: 8, zIndex: 190, boxShadow: '0 -1px 4px rgba(0,0,0,0.06)' }}>
+              {CATEGORIES.map(cat => {
+                const dedans = presetsCalendrierActif.filter(p => p.type === cat.id)
+                if (dedans.length === 0) return null
+                const actifDansCat = dedans.find(p => p.id === presetActif)
+                return (
+                  <button key={cat.id} onClick={() => setPopupCat(cat.id)}
+                    style={{ flex: 1, padding: '8px 4px', borderRadius: 10, border: actifDansCat ? '2px solid #333' : '1px solid #e5e7eb',
+                      background: actifDansCat ? '#1f2937' : '#f9fafb', color: actifDansCat ? '#fff' : '#1f2937',
+                      fontWeight: actifDansCat ? 'bold' : 'normal', cursor: 'pointer', fontSize: 12, textAlign: 'center' }}>
+                    {cat.label}
+                  </button>
+                )
+              })}
+              <button onClick={() => { setModeGomme(!modeGomme); setPresetActif(null) }}
+                style={{ padding: '8px 12px', borderRadius: 10, border: modeGomme ? '2px solid #c00' : '1px solid #e5e7eb',
+                  background: modeGomme ? '#fee2e2' : '#f9fafb', color: modeGomme ? '#c00' : '#6b7280',
+                  fontWeight: modeGomme ? 'bold' : 'normal', cursor: 'pointer', fontSize: 16 }}>
+                🧹
+              </button>
+            </div>
+          )}
+
+          {/* Barre de navigation en bas */}
+          <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, display: 'flex', background: '#fff', borderTop: '1px solid #e5e7eb', boxShadow: '0 -2px 8px rgba(0,0,0,0.08)', zIndex: 200 }}>
+            {[['vue','📅','Vue'],['peindre','🛠️','Presets'],['gerer','⚙️','Gérer']].map(([id, icone, label]) => (
+              <button key={id} onClick={() => setOngletMobile(id)} style={{ flex: 1, border: 'none', borderRadius: 0, background: ongletMobile === id ? '#eef2ff' : '#fff', padding: '10px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, color: ongletMobile === id ? '#3b82f6' : '#6b7280', fontWeight: ongletMobile === id ? 'bold' : 'normal' }}>
+                <span style={{ fontSize: 20 }}>{icone}</span><span style={{ fontSize: 11 }}>{label}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}e={{ fontSize: 11 }}>{label}</span>
             </button>
           ))}
         </div>

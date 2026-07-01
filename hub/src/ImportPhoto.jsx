@@ -292,7 +292,7 @@ FORMAT :
       <p style={{ color: '#6b7280' }}>L'IA va lire les horaires, statuts et noms, puis tu valideras case par case avant l'application.</p>
       <p style={{ fontSize: 13, color: '#6b7280' }}>Calendrier cible : <strong style={{ color: calObj?.couleur }}>{calObj?.nom || '—'}</strong></p>
       <div style={{ border: '2px dashed #cbd5e1', borderRadius: 12, padding: 24, textAlign: 'center', marginBottom: 16 }}>
-        <input type="file" accept="image/*" capture="environment" onChange={choisirFichier} style={{ marginBottom: 12 }} />
+        <input type="file" accept="image/*" onChange={choisirFichier} style={{ marginBottom: 12 }} />
         {apercu && <img src={apercu} alt="aperçu" style={{ maxWidth: '100%', maxHeight: 280, borderRadius: 8, marginTop: 12 }} />}
       </div>
       {erreur && <p style={{ color: '#c00' }}>{erreur}</p>}
