@@ -788,10 +788,6 @@ export function Planning({ onRetour }) {
       )}
 
       {estMobile && (
-        <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, display: 'flex', background: '#fff', borderTop: '1px solid #e5e7eb', boxShadow: '0 -2px 8px rgba(0,0,0,0.08)', zIndex: 200 }}>
-          {[['vue','📅','Vue'],['peindre','🛠️','Presets'],['gerer','⚙️','Gérer']].map(([id, icone, label]) => (
-            <button key={id} onClick={() => setOngletMobile(id)} style={{ flex: 1, border: 'none', borderRadius: 0, background: ongletMobile === id ? '#eef2ff' : '#fff', padding: '10px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, color: ongletMobile === id ? '#3b82f6' : '#6b7280', fontWeight: ongletMobile === id ? 'bold' : 'normal' }}>
-              <span style={{ fontSize: 20 }}>{icone}</span><span style={{ fontSize: 11 }}>{label}</span>
         <>
           {/* Barre d'outils pinceau — visible uniquement sur l'onglet Vue */}
           {ongletMobile === 'vue' && (
@@ -827,10 +823,6 @@ export function Planning({ onRetour }) {
             ))}
           </div>
         </>
-      <span style={{ fontSize: 11 }}>{label}</span>
-            </button>
-          ))}
-        </div>
       )}
 
       {/* POPUP DÉTAIL JOUR */}
