@@ -667,8 +667,9 @@ export function Planning({ onRetour }) {
                   )
                 })}
               </div>
-
-              
+            </>
+          )
+        })()}
         <button onClick={() => { setModeGomme(!modeGomme); setPresetActif(null) }} style={{ padding: '8px 14px', borderRadius: 6, border: modeGomme ? '2px solid #c00' : '1px solid #ccc', background: modeGomme ? '#fee2e2' : '#fff', color: modeGomme ? '#c00' : '#1f2937', fontWeight: modeGomme ? 'bold' : 'normal' }}>🧹 Gomme</button>
         {presetActif && (<>
           <button onClick={() => ouvrirEdition('preset', presets.find(p => p.id === presetActif))} style={{ padding: '6px 10px' }}>✏️</button>
