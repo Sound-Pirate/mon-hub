@@ -278,6 +278,7 @@ FORMAT :
       })
       setEtape('termine')
       if (onImportTermine) onImportTermine()
+        setEtape('termine')
     } catch(e) {
       setErreur('Erreur peinture : ' + e.message); setEtape('validation_sequentielle')
     }

@@ -490,6 +490,9 @@ export function Planning({ onRetour }) {
           {personnesAffichees.map(p => (
             <div key={p.id}>
               <div style={{ fontWeight: 'bold', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}><span style={pastille(p.couleur, 10)} /> {p.nom}</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 2, marginBottom: 2 }}>
+                {JOURS.map(j => <div key={j} style={{ textAlign: 'center', fontWeight: 'bold', color: '#9ca3af', fontSize: 10 }}>{j[0]}</div>)}
+              </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 2 }}>
                 {joursSemaine.map((x, i) => <CaseCompacte key={i} a={x.getFullYear()} m={x.getMonth()} j={x.getDate()} personneId={p.id} haut={56} montrerNumero={true} />)}
               </div>
@@ -713,7 +716,8 @@ export function Planning({ onRetour }) {
   return (
     vueImport ? (
       <ImportPhoto
-        onRetour={() => { setVueImport(false); chargerPresets(); chargerJours() }}
+        onRetour={() => setVueImport(false)}
+        onImportTermine={() => { chargerPresets(); chargerJours() }}
         personnes={personnes}
         presets={presets}
         calendrierActif={calendrierActif}
