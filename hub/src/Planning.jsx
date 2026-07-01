@@ -827,7 +827,7 @@ export function Planning({ onRetour }) {
             ))}
           </div>
         </>
-      )}e={{ fontSize: 11 }}>{label}</span>
+      <span style={{ fontSize: 11 }}>{label}</span>
             </button>
           ))}
         </div>
