@@ -668,50 +668,7 @@ export function Planning({ onRetour }) {
                 })}
               </div>
 
-              {/* Popup plein écran catégorie */}
-              {popupCat && (() => {
-                const cat = CATEGORIES.find(c => c.id === popupCat)
-                const dedans = presetsCalendrierActif.filter(p => p.type === popupCat)
-                return (
-                  <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 500, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
-                    <div style={{ background: '#fff', borderRadius: '16px 16px 0 0', padding: '20px 16px', maxHeight: '80vh', overflowY: 'auto' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                        <h2 style={{ margin: 0, fontSize: 20 }}>{cat.label}</h2>
-                        <button onClick={() => setPopupCat(null)}
-                          style={{ border: 'none', background: '#f3f4f6', borderRadius: 8, padding: '6px 12px', fontSize: 16, cursor: 'pointer' }}>✕</button>
-                      </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        {dedans.map(p => (
-                          <button key={p.id}
-                            onClick={() => { setPresetActif(p.id); setModeGomme(false); setPopupCat(null) }}
-                            style={{ padding: '14px 16px', borderRadius: 12, textAlign: 'left', cursor: 'pointer',
-                              border: presetActif === p.id ? '2px solid #333' : '1px solid #e5e7eb',
-                              background: presetActif === p.id ? '#1f2937' : '#fff',
-                              display: 'flex', alignItems: 'center', gap: 12 }}>
-                            {p.type === 'horaire'
-                              ? <span style={{ width: 16, height: 16, borderRadius: '50%', background: couleurStatut(p.statut_horaire), flexShrink: 0 }} />
-                              : p.image_url
-                                ? <img src={p.image_url} alt="" style={{ width: 24, height: 24, objectFit: 'contain' }} />
-                                : <span style={{ width: 16, height: 16, borderRadius: '50%', background: p.couleur, flexShrink: 0 }} />}
-                            <span style={{ fontWeight: presetActif === p.id ? 'bold' : 'normal', fontSize: 16, color: presetActif === p.id ? '#fff' : '#1f2937' }}>{p.nom}</span>
-                            {presetActif === p.id && <span style={{ marginLeft: 'auto', color: '#fff' }}>✓</span>}
-                          </button>
-                        ))}
-                      </div>
-                      {/* Désélectionner depuis la popup */}
-                      {presetActif && presetsCalendrierActif.find(p => p.id === presetActif)?.type === popupCat && (
-                        <button onClick={() => { setPresetActif(null); setModeGomme(false); setPopupCat(null) }}
-                          style={{ width: '100%', marginTop: 12, padding: '12px', borderRadius: 12, border: '1px solid #e5e7eb', background: '#fef2f2', color: '#c00', fontWeight: 'bold', cursor: 'pointer' }}>
-                          ✕ Désélectionner le pinceau
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )
-              })()}
-            </>
-          )
-        })()}
+              
         <button onClick={() => { setModeGomme(!modeGomme); setPresetActif(null) }} style={{ padding: '8px 14px', borderRadius: 6, border: modeGomme ? '2px solid #c00' : '1px solid #ccc', background: modeGomme ? '#fee2e2' : '#fff', color: modeGomme ? '#c00' : '#1f2937', fontWeight: modeGomme ? 'bold' : 'normal' }}>🧹 Gomme</button>
         {presetActif && (<>
           <button onClick={() => ouvrirEdition('preset', presets.find(p => p.id === presetActif))} style={{ padding: '6px 10px' }}>✏️</button>
@@ -813,7 +770,50 @@ export function Planning({ onRetour }) {
               </button>
             </div>
           )}
-
+{/* Popup plein écran catégorie */}
+              {popupCat && (() => {
+                const cat = CATEGORIES.find(c => c.id === popupCat)
+                const dedans = presetsCalendrierActif.filter(p => p.type === popupCat)
+                return (
+                  <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 500, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+                    <div style={{ background: '#fff', borderRadius: '16px 16px 0 0', padding: '20px 16px', maxHeight: '80vh', overflowY: 'auto' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                        <h2 style={{ margin: 0, fontSize: 20 }}>{cat.label}</h2>
+                        <button onClick={() => setPopupCat(null)}
+                          style={{ border: 'none', background: '#f3f4f6', borderRadius: 8, padding: '6px 12px', fontSize: 16, cursor: 'pointer' }}>✕</button>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {dedans.map(p => (
+                          <button key={p.id}
+                            onClick={() => { setPresetActif(p.id); setModeGomme(false); setPopupCat(null) }}
+                            style={{ padding: '14px 16px', borderRadius: 12, textAlign: 'left', cursor: 'pointer',
+                              border: presetActif === p.id ? '2px solid #333' : '1px solid #e5e7eb',
+                              background: presetActif === p.id ? '#1f2937' : '#fff',
+                              display: 'flex', alignItems: 'center', gap: 12 }}>
+                            {p.type === 'horaire'
+                              ? <span style={{ width: 16, height: 16, borderRadius: '50%', background: couleurStatut(p.statut_horaire), flexShrink: 0 }} />
+                              : p.image_url
+                                ? <img src={p.image_url} alt="" style={{ width: 24, height: 24, objectFit: 'contain' }} />
+                                : <span style={{ width: 16, height: 16, borderRadius: '50%', background: p.couleur, flexShrink: 0 }} />}
+                            <span style={{ fontWeight: presetActif === p.id ? 'bold' : 'normal', fontSize: 16, color: presetActif === p.id ? '#fff' : '#1f2937' }}>{p.nom}</span>
+                            {presetActif === p.id && <span style={{ marginLeft: 'auto', color: '#fff' }}>✓</span>}
+                          </button>
+                        ))}
+                      </div>
+                      {/* Désélectionner depuis la popup */}
+                      {presetActif && presetsCalendrierActif.find(p => p.id === presetActif)?.type === popupCat && (
+                        <button onClick={() => { setPresetActif(null); setModeGomme(false); setPopupCat(null) }}
+                          style={{ width: '100%', marginTop: 12, padding: '12px', borderRadius: 12, border: '1px solid #e5e7eb', background: '#fef2f2', color: '#c00', fontWeight: 'bold', cursor: 'pointer' }}>
+                          ✕ Désélectionner le pinceau
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )
+              })()}
+            </>
+          )
+        })()}
           {/* Barre de navigation en bas */}
           <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, display: 'flex', background: '#fff', borderTop: '1px solid #e5e7eb', boxShadow: '0 -2px 8px rgba(0,0,0,0.08)', zIndex: 200 }}>
             {[['vue','📅','Vue'],['peindre','🛠️','Presets'],['gerer','⚙️','Gérer']].map(([id, icone, label]) => (
