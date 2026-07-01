@@ -812,9 +812,6 @@ export function Planning({ onRetour }) {
                   </div>
                 )
               })()}
-            </>
-          )
-        })()}
           {/* Barre de navigation en bas */}
           <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, display: 'flex', background: '#fff', borderTop: '1px solid #e5e7eb', boxShadow: '0 -2px 8px rgba(0,0,0,0.08)', zIndex: 200 }}>
             {[['vue','📅','Vue'],['peindre','🛠️','Presets'],['gerer','⚙️','Gérer']].map(([id, icone, label]) => (
