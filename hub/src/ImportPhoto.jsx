@@ -29,8 +29,8 @@ function similarite(a, b) {
 // Normalise un horaire détecté vers le format "HH:MM - HH:MM"
 function normaliserHoraire(h) {
   if (!h) return h
-  // Normalise "8:30 - 17:00" → "08h30 - 17h00"
-  return h.replace(/(\d{1,2}):(\d{2})/g, (_, hh, mm) => String(hh).padStart(2, '0') + 'h' + mm)
+  // Normalise "8:30 - 17:00" → "08:30 - 17:00"
+  return h.replace(/(\d{1,2})[h:](\d{2})/g, (_, hh, mm) => String(hh).padStart(2, '0') + ':' + mm)
     .replace(/\s*-\s*/g, ' - ').trim()
 }
 
