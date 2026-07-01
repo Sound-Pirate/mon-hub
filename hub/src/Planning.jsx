@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from './supabaseClient'
+import { ImportPhoto } from './ImportPhoto'
 
 const JOURS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim']
 const MOIS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre']
@@ -86,6 +87,7 @@ export function Planning({ onRetour }) {
   const [sauvegarde, setSauvegarde] = useState('idle')
 
   const [detailJour, setDetailJour] = useState(null) // popup d'infos
+  const [vueImport, setVueImport] = useState(false)
 
   const [formPresetOuvert, setFormPresetOuvert] = useState(false)
   const [nouveauNom, setNouveauNom] = useState('')
@@ -111,6 +113,7 @@ export function Planning({ onRetour }) {
   const [nouvellePersonneCouleur, setNouvellePersonneCouleur] = useState(PALETTE[6])
 
   const [edition, setEdition] = useState(null)
+  const [popupCat, setPopupCat] = useState(null)
 
   function flashSauvegarde() { setSauvegarde('saved'); setTimeout(() => setSauvegarde('idle'), 1200) }
 
@@ -628,14 +631,87 @@ export function Planning({ onRetour }) {
       )}
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         <label style={{ fontWeight: 'bold' }}>Pinceau :</label>
-        <select value={presetActif || ''} onChange={e => { setPresetActif(e.target.value || null); setModeGomme(false) }} style={{ padding: 10, fontSize: 16, minWidth: 200, flex: estMobile ? 1 : 'none' }}>
-          <option value="">— Aucun (mode consultation) —</option>
-          {CATEGORIES.map(cat => {
-            const dedans = presetsCalendrierActif.filter(p => p.type === cat.id)
-            if (dedans.length === 0) return null
-            return <optgroup key={cat.id} label={cat.label}>{dedans.map(p => <option key={p.id} value={p.id}>{p.nom}</option>)}</optgroup>
-          })}
-        </select>
+         {(() => {
+          const presetActifObj = presetsCalendrierActif.find(p => p.id === presetActif)
+          return (
+            <>
+              {/* Pinceau actif */}
+              {presetActifObj ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 8, background: '#f0fdf4', border: '2px solid #22c55e', marginBottom: 8 }}>
+                  {presetActifObj.type === 'horaire'
+                    ? <span style={{ width: 12, height: 12, borderRadius: '50%', background: couleurStatut(presetActifObj.statut_horaire), flexShrink: 0 }} />
+                    : presetActifObj.image_url
+                      ? <img src={presetActifObj.image_url} alt="" style={{ width: 16, height: 16, objectFit: 'contain' }} />
+                      : <span style={{ width: 12, height: 12, borderRadius: '50%', background: presetActifObj.couleur, flexShrink: 0 }} />}
+                  <span style={{ fontWeight: 'bold', flex: 1 }}>🖌️ {presetActifObj.nom}</span>
+                  <button onClick={() => { setPresetActif(null); setModeGomme(false) }}
+                    style={{ border: 'none', background: 'transparent', fontSize: 18, cursor: 'pointer', color: '#6b7280', padding: '0 4px' }}>✕</button>
+                </div>
+              ) : (
+                <p style={{ color: '#9ca3af', fontSize: 13, marginBottom: 8 }}>👆 Aucun pinceau — clique sur une catégorie pour peindre</p>
+              )}
+
+              {/* Boutons catégories */}
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {CATEGORIES.map(cat => {
+                  const dedans = presetsCalendrierActif.filter(p => p.type === cat.id)
+                  if (dedans.length === 0) return null
+                  const actifDansCat = dedans.find(p => p.id === presetActif)
+                  return (
+                    <button key={cat.id} onClick={() => setPopupCat(cat.id)}
+                      style={{ padding: '10px 16px', borderRadius: 10, border: actifDansCat ? '2px solid #333' : '1px solid #e5e7eb',
+                        background: actifDansCat ? '#1f2937' : '#f9fafb', color: actifDansCat ? '#fff' : '#1f2937',
+                        fontWeight: actifDansCat ? 'bold' : 'normal', cursor: 'pointer', fontSize: 14 }}>
+                      {cat.label} ({dedans.length})
+                    </button>
+                  )
+                })}
+              </div>
+
+              {/* Popup plein écran catégorie */}
+              {popupCat && (() => {
+                const cat = CATEGORIES.find(c => c.id === popupCat)
+                const dedans = presetsCalendrierActif.filter(p => p.type === popupCat)
+                return (
+                  <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 500, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+                    <div style={{ background: '#fff', borderRadius: '16px 16px 0 0', padding: '20px 16px', maxHeight: '80vh', overflowY: 'auto' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                        <h2 style={{ margin: 0, fontSize: 20 }}>{cat.label}</h2>
+                        <button onClick={() => setPopupCat(null)}
+                          style={{ border: 'none', background: '#f3f4f6', borderRadius: 8, padding: '6px 12px', fontSize: 16, cursor: 'pointer' }}>✕</button>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {dedans.map(p => (
+                          <button key={p.id}
+                            onClick={() => { setPresetActif(p.id); setModeGomme(false); setPopupCat(null) }}
+                            style={{ padding: '14px 16px', borderRadius: 12, textAlign: 'left', cursor: 'pointer',
+                              border: presetActif === p.id ? '2px solid #333' : '1px solid #e5e7eb',
+                              background: presetActif === p.id ? '#1f2937' : '#fff',
+                              display: 'flex', alignItems: 'center', gap: 12 }}>
+                            {p.type === 'horaire'
+                              ? <span style={{ width: 16, height: 16, borderRadius: '50%', background: couleurStatut(p.statut_horaire), flexShrink: 0 }} />
+                              : p.image_url
+                                ? <img src={p.image_url} alt="" style={{ width: 24, height: 24, objectFit: 'contain' }} />
+                                : <span style={{ width: 16, height: 16, borderRadius: '50%', background: p.couleur, flexShrink: 0 }} />}
+                            <span style={{ fontWeight: presetActif === p.id ? 'bold' : 'normal', fontSize: 16, color: presetActif === p.id ? '#fff' : '#1f2937' }}>{p.nom}</span>
+                            {presetActif === p.id && <span style={{ marginLeft: 'auto', color: '#fff' }}>✓</span>}
+                          </button>
+                        ))}
+                      </div>
+                      {/* Désélectionner depuis la popup */}
+                      {presetActif && presetsCalendrierActif.find(p => p.id === presetActif)?.type === popupCat && (
+                        <button onClick={() => { setPresetActif(null); setModeGomme(false); setPopupCat(null) }}
+                          style={{ width: '100%', marginTop: 12, padding: '12px', borderRadius: 12, border: '1px solid #e5e7eb', background: '#fef2f2', color: '#c00', fontWeight: 'bold', cursor: 'pointer' }}>
+                          ✕ Désélectionner le pinceau
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )
+              })()}
+            </>
+          )
+        })()}
         <button onClick={() => { setModeGomme(!modeGomme); setPresetActif(null) }} style={{ padding: '8px 14px', borderRadius: 6, border: modeGomme ? '2px solid #c00' : '1px solid #ccc', background: modeGomme ? '#fee2e2' : '#fff', color: modeGomme ? '#c00' : '#1f2937', fontWeight: modeGomme ? 'bold' : 'normal' }}>🧹 Gomme</button>
         {presetActif && (<>
           <button onClick={() => ouvrirEdition('preset', presets.find(p => p.id === presetActif))} style={{ padding: '6px 10px' }}>✏️</button>
@@ -677,6 +753,16 @@ export function Planning({ onRetour }) {
   )
 
   return (
+    vueImport ? (
+      <ImportPhoto
+        onRetour={() => { setVueImport(false); chargerPresets(); chargerJours() }}
+        personnes={personnes}
+        presets={presets}
+        calendrierActif={calendrierActif}
+        calendriers={calendriers}
+        onImportTermine={() => { chargerPresets(); chargerJours() }}
+      />
+    ) : (
     <div style={{ maxWidth: 1100, margin: estMobile ? '0 auto' : '30px auto', padding: estMobile ? '12px 10px 80px' : '0 16px' }}>
       {sauvegarde !== 'idle' && (
         <div style={{ position: 'fixed', top: 12, right: 12, padding: '6px 14px', borderRadius: 20, background: sauvegarde === 'saving' ? '#fef3c7' : '#dcfce7', color: sauvegarde === 'saving' ? '#92400e' : '#166534', fontSize: 13, fontWeight: 'bold', zIndex: 300, boxShadow: '0 2px 6px rgba(0,0,0,0.15)' }}>{sauvegarde === 'saving' ? '💾 Enregistrement...' : '✓ Enregistré'}</div>
@@ -685,7 +771,10 @@ export function Planning({ onRetour }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <button onClick={onRetour}>← Hub</button>
         <h1 style={{ fontSize: estMobile ? 22 : 28, margin: 0 }}>📅 Planning</h1>
-        <span style={{ width: 50 }} />
+        <button onClick={() => setVueImport(true)} title="Importer une photo de planning"
+          style={{ fontSize: 22, padding: '4px 10px', border: '1px solid #ccc', borderRadius: 8, background: '#fff', cursor: 'pointer' }}>
+          📷
+        </button>
       </div>
 
       {!estMobile ? (
@@ -780,4 +869,5 @@ export function Planning({ onRetour }) {
       )}
     </div>
   )
+)
 }
